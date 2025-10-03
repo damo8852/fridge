@@ -1,0 +1,356 @@
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../services/auth.dart';
+import '../services/recipes.dart';
+import '../services/notifications.dart';
+import '../widgets/item_tile.dart';
+import 'scan.dart';
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final _auth = FirebaseAuth.instance;
+  final _db = FirebaseFirestore.instance;
+
+  User get user => _auth.currentUser!;
+  String _status = 'Ready';
+
+  @override
+  Widget build(BuildContext context) {
+    final ownerId = user.uid;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Fridge'),
+        actions: [
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: () async {
+              await AuthService.instance.signOut();
+            },
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _addItemDialog,
+        icon: const Icon(Icons.add),
+        label: const Text('Add item'),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                Expanded(child: Text('Hi, ${user.isAnonymous ? 'Guest' : (user.displayName ?? 'you')}')),
+                Text(_status, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _seedTestData,
+                  icon: const Icon(Icons.auto_awesome),
+                  label: const Text('Seed'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _recommendRecipes,
+                  icon: const Icon(Icons.restaurant_menu),
+                  label: const Text('Recipes'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ScanPage()),
+                  ),
+                  icon: const Icon(Icons.document_scanner),
+                  label: const Text('Scan'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _db
+                  .collection('users')
+                  .doc(ownerId)
+                  .collection('items')
+                  .orderBy('expiryDate')
+                  .snapshots(),
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return Center(child: Text('Error: ${snap.error}'));
+                }
+                if (!snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snap.data!.docs;
+                if (docs.isEmpty) {
+                  return const _EmptyState();
+                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemCount: docs.length,
+                  itemBuilder: (context, i) {
+                    final ref = docs[i].reference;
+                    final data = docs[i].data();
+                    return Card(
+                      elevation: 1,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: ItemTile(
+                        name: (data['name'] ?? 'Unknown').toString(),
+                        expiry: (data['expiryDate'] as Timestamp?)?.toDate(),
+                        quantity: (data['quantity'] ?? 1),
+                        onEdit: () => _editItemDialog(ref, data),
+                        onUsedHalf: () async {
+                          final q = data['quantity'];
+                          final newQ = (q is num) ? (q / 2) : 1;
+                          await ref.update({
+                            'quantity': newQ,
+                            'updatedAt': FieldValue.serverTimestamp(),
+                          });
+                        },
+                        onFinish: () async => ref.delete(),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addItemDialog() async {
+    final nameCtrl = TextEditingController();
+    final qtyCtrl = TextEditingController(text: '1');
+    DateTime expiry = DateTime.now().add(const Duration(days: 5));
+
+    Future<void> save() async {
+      final name = nameCtrl.text.trim();
+      if (name.isEmpty) return;
+      final ref = _db.collection('users').doc(user.uid).collection('items').doc();
+      await ref.set({
+        'name': name,
+        'quantity': int.tryParse(qtyCtrl.text) ?? 1,
+        'expiryDate': Timestamp.fromDate(expiry),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'source': 'manual',
+      });
+      await NotificationsService.instance.scheduleExpiryReminder(
+        id: ref.id.hashCode,
+        title: 'Use soon: $name',
+        body: 'Expires tomorrow',
+        when: expiry.subtract(const Duration(days: 1)),
+      );
+      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // ALWAYS close
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return StatefulBuilder(builder: (context, setLocal) {
+          return AlertDialog(
+            title: const Text('Add Item'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
+                TextField(
+                  controller: qtyCtrl,
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: expiry,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 120)),
+                    );
+                    if (picked != null) setLocal(() => expiry = picked); // local state
+                  },
+                  icon: const Icon(Icons.calendar_month),
+                  label: Text('Expires ${expiry.toLocal().toString().split(' ').first}'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context, rootNavigator: true).pop(), child: const Text('Cancel')),
+              FilledButton(onPressed: save, child: const Text('Save')),
+            ],
+          );
+        });
+      },
+    );
+  }
+
+  Future<void> _editItemDialog(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> data,
+  ) async {
+    final nameCtrl = TextEditingController(text: (data['name'] ?? '').toString());
+    final qtyCtrl = TextEditingController(text: (data['quantity'] ?? 1).toString());
+    DateTime expiry =
+        (data['expiryDate'] as Timestamp?)?.toDate() ?? DateTime.now().add(const Duration(days: 5));
+
+    Future<void> save() async {
+      await ref.update({
+        'name': nameCtrl.text.trim(),
+        'quantity': int.tryParse(qtyCtrl.text) ?? 1,
+        'expiryDate': Timestamp.fromDate(expiry),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return StatefulBuilder(builder: (context, setLocal) {
+          return AlertDialog(
+            title: const Text('Edit Item'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
+                TextField(
+                  controller: qtyCtrl,
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: expiry,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 120)),
+                    );
+                    if (picked != null) setLocal(() => expiry = picked);
+                  },
+                  icon: const Icon(Icons.calendar_month),
+                  label: Text('Expires ${expiry.toLocal().toString().split(' ').first}'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context, rootNavigator: true).pop(), child: const Text('Cancel')),
+              FilledButton(onPressed: save, child: const Text('Save')),
+            ],
+          );
+        });
+      },
+    );
+  }
+
+  Future<void> _seedTestData() async {
+    final ownerId = user.uid;
+    final itemsRef = _db.collection('users').doc(ownerId).collection('items');
+
+    final now = DateTime.now();
+    final sample = [
+      {
+        'name': 'Milk',
+        'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 7))),
+        'quantity': 1,
+        'source': 'seed'
+      },
+      {
+        'name': 'Eggs',
+        'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 35))),
+        'quantity': 12,
+        'source': 'seed'
+      },
+      {
+        'name': 'Berries',
+        'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 5))),
+        'quantity': 1,
+        'source': 'seed'
+      },
+    ];
+
+    final batch = _db.batch();
+    for (final item in sample) {
+      final doc = itemsRef.doc();
+      batch.set(doc, {
+        ...item,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      final expiry = (item['expiryDate'] as Timestamp).toDate();
+      await NotificationsService.instance.scheduleExpiryReminder(
+        id: doc.id.hashCode,
+        title: 'Use soon: ${item['name']}',
+        body: 'Expires tomorrow',
+        when: expiry.subtract(const Duration(days: 1)),
+      );
+    }
+    await batch.commit();
+    if (mounted) setState(() => _status = 'Seeded ${sample.length} items');
+  }
+
+  Future<void> _recommendRecipes() async {
+    if (!mounted) return;
+    setState(() => _status = 'Getting recipes…');
+    try {
+      final recipes = await RecipesService(region: 'us-central1').recommend();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(recipes.isEmpty ? 'No matches yet' : recipes.join(' • '))),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Recipes unavailable: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _status = 'Ready');
+    }
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.inventory_2_outlined, size: 56, color: Theme.of(context).colorScheme.outline),
+            const SizedBox(height: 12),
+            Text('No items yet', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text('Tap “Add item” to get started.', style: Theme.of(context).textTheme.bodyMedium),
+          ],
+        ),
+      ),
+    );
+  }
+}

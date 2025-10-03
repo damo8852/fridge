@@ -1,0 +1,45 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "csc-fridge",
+          "appId": "1:99046813039:android:ca35e368bdc21eb7f84c9a",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "csc-fridge",
+          "configurations": {
+            "android": "1:99046813039:android:ca35e368bdc21eb7f84c9a",
+            "ios": "1:99046813039:ios:a9625f787d966b67f84c9a",
+            "macos": "1:99046813039:ios:a9625f787d966b67f84c9a",
+            "web": "1:99046813039:web:c1f02aab17f2be80f84c9a",
+            "windows": "1:99046813039:web:fac997f26714f9d1f84c9a"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "venv",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "runtime": "python313"
+    }
+  ],
+  "firestore": {
+    "database": "(default)",
+    "location": "us-central1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

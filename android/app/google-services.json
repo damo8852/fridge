@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "99046813039",
+    "project_id": "csc-fridge",
+    "storage_bucket": "csc-fridge.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:99046813039:android:ca35e368bdc21eb7f84c9a",
+        "android_client_info": {
+          "package_name": "com.example.fridge"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBsiOxrbgl8bfpmaffrRyqzY6zb3olW5RU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

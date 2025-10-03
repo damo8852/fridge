@@ -1,0 +1,12 @@
+{
+  "rules": [
+    { "match": ["milk"], "days": 7 },
+    { "match": ["spinach"], "days": 5 },
+    { "match": ["chicken","breast"], "days": 2 },
+    { "match": ["eggs"], "days": 35 },
+    { "match": ["berries","strawberry","blueberry","raspberry"], "days": 5 },
+    { "match": ["yogurt"], "days": 10 },
+    { "match": ["bread"], "days": 4 },
+    { "match": ["beef","ground"], "days": 2 }
+  ]
+}
