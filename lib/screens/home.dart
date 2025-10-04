@@ -208,7 +208,6 @@ class _HomePageState extends State<HomePage> {
         body: 'Expires tomorrow',
         when: expiry.subtract(const Duration(days: 1)),
       );
-      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // ALWAYS close
     }
 
     await showDialog(
@@ -257,7 +256,18 @@ class _HomePageState extends State<HomePage> {
             ),
             actions: [
               TextButton(onPressed: () => Navigator.of(context, rootNavigator: true).pop(), child: const Text('Cancel')),
-              FilledButton(onPressed: save, child: const Text('Save')),
+              FilledButton(onPressed: () async {
+                try {
+                  final name = nameCtrl.text.trim();
+                  if (name.isNotEmpty) {
+                    await save();
+                  }
+                } catch (e) {
+                  // Handle any errors during save, but still close the dialog
+                  print('Error saving item: $e');
+                }
+                if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+              }, child: const Text('Save')),
             ],
           );
         });
@@ -283,7 +293,6 @@ class _HomePageState extends State<HomePage> {
         'groceryType': selectedType.name,
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      if (mounted) Navigator.of(context, rootNavigator: true).pop();
     }
 
     await showDialog(
@@ -332,7 +341,15 @@ class _HomePageState extends State<HomePage> {
             ),
             actions: [
               TextButton(onPressed: () => Navigator.of(context, rootNavigator: true).pop(), child: const Text('Cancel')),
-              FilledButton(onPressed: save, child: const Text('Save')),
+              FilledButton(onPressed: () async {
+                try {
+                  await save();
+                } catch (e) {
+                  // Handle any errors during save, but still close the dialog
+                  print('Error updating item: $e');
+                }
+                if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+              }, child: const Text('Save')),
             ],
           );
         });

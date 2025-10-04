@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -66,6 +67,16 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     super.dispose();
   }
 
+  void _clearPreview() {
+    if (mounted) {
+      setState(() {
+        _preview = [];
+        _err = null;
+      });
+    }
+  }
+
+
   Future<void> _pickAndProcess(ImageSource source) async {
     setState(() {
       _busy = true;
@@ -93,39 +104,83 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
 
   Future<void> _saveAll() async {
     if (_preview.isEmpty) return;
-    final user = _auth.currentUser!;
-    final rules = _rules ?? await ExpiryRules.load();
+    
+    setState(() => _busy = true);
+    
+    try {
+      final user = _auth.currentUser!;
+      final rules = _rules ?? await ExpiryRules.load();
 
-    final batch = _db.batch();
-    final col = _db.collection('users').doc(user.uid).collection('items');
-    final now = DateTime.now();
+      final batch = _db.batch();
+      final col = _db.collection('users').doc(user.uid).collection('items');
+      final now = DateTime.now();
 
-    for (final it in _preview) {
-      final days = rules.guessDays(it.name);
-      final expiry = now.add(Duration(days: days));
-      final doc = col.doc();
-      batch.set(doc, {
-        'name': it.name,
-        'quantity': it.quantity,
-        'expiryDate': Timestamp.fromDate(expiry),
-        'groceryType': GroceryType.other.name,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'source': 'receipt',
-      });
-      await NotificationsService.instance.scheduleExpiryReminder(
-        id: doc.id.hashCode,
-        title: 'Use soon: ${it.name}',
-        body: 'Expires tomorrow',
-        when: expiry.subtract(const Duration(days: 1)),
+      // Temporarily disabled notifications to prevent crashes
+      // final notificationTasks = <Future<void>>[];
+
+      for (final it in _preview) {
+        final days = rules.guessDays(it.name);
+        final expiry = now.add(Duration(days: days));
+        final doc = col.doc();
+        
+        batch.set(doc, {
+          'name': it.name,
+          'quantity': it.quantity,
+          'expiryDate': Timestamp.fromDate(expiry),
+          'groceryType': GroceryType.other.name,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'source': 'receipt',
+        });
+        
+        // Temporarily disable notifications to prevent crashes
+        // Schedule notification (don't await here, collect for later)
+        // Use a more stable ID generation to avoid potential hash collisions
+        // final notificationId = doc.id.hashCode.abs();
+        // notificationTasks.add(
+        //   _scheduleNotificationSafely(
+        //     id: notificationId,
+        //     title: 'Use soon: ${it.name}',
+        //     body: 'Expires tomorrow',
+        //     when: expiry.subtract(const Duration(days: 1)),
+        //   ),
+        // );
+      }
+      
+      // Commit the batch first with timeout
+      await batch.commit().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          throw Exception('Firestore batch commit timed out');
+        },
       );
-    }
-    await batch.commit();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Added ${_preview.length} items')),
-      );
-      Navigator.pop(context);
+      
+      // Then handle notifications (fire and forget, don't block UI)
+      // Schedule notifications in the background without blocking
+      // Temporarily disable notifications to prevent crashes
+      // if (notificationTasks.isNotEmpty) {
+      //   unawaited(_handleNotificationsSafely(notificationTasks));
+      // }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Added ${_preview.length} items')),
+        );
+        // Clear the preview and reset state instead of navigating away
+        _clearPreview();
+      }
+    } catch (e) {
+      print('Error saving items: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save items: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -314,31 +369,50 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
         ),
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.photo),
-                  label: const Text('Gallery'),
-                  onPressed: () => _pickAndProcess(ImageSource.gallery),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.photo),
+                      label: const Text('Gallery'),
+                      onPressed: _busy ? null : () => _pickAndProcess(ImageSource.gallery),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.photo_camera),
+                      label: const Text('Camera'),
+                      onPressed: _busy ? null : () => _pickAndProcess(ImageSource.camera),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      icon: _busy ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ) : const Icon(Icons.check),
+                      label: Text(_busy ? 'Saving...' : 'Save items'),
+                      onPressed: (_preview.isEmpty || _busy) ? null : _saveAll,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.photo_camera),
-                  label: const Text('Camera'),
-                  onPressed: () => _pickAndProcess(ImageSource.camera),
+              if (_preview.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.clear),
+                    label: const Text('Clear Preview'),
+                    onPressed: _busy ? null : _clearPreview,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  icon: const Icon(Icons.check),
-                  label: const Text('Save items'),
-                  onPressed: _preview.isEmpty ? null : _saveAll,
-                ),
-              ),
+              ],
             ],
           ),
         ),
