@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../services/parser.dart';
 import '../services/notifications.dart';
+import '../models/grocery_type.dart';
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -107,6 +108,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
         'name': it.name,
         'quantity': it.quantity,
         'expiryDate': Timestamp.fromDate(expiry),
+        'groceryType': GroceryType.other.name,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'source': 'receipt',
@@ -145,6 +147,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     final qtyCtrl = TextEditingController(text: '1');
     final rules = _rules ?? await ExpiryRules.load();
     DateTime expiry = DateTime.now().add(Duration(days: rules.guessDays(name)));
+    GroceryType selectedType = GroceryType.other;
 
     await showDialog(
       context: context,
@@ -159,6 +162,18 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                 children: [
                   TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
                   TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: 'Quantity'), keyboardType: TextInputType.number),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<GroceryType>(
+                    value: selectedType,
+                    decoration: const InputDecoration(labelText: 'Grocery Type'),
+                    items: GroceryType.allTypes.map((type) => DropdownMenuItem(
+                      value: type,
+                      child: Text(type.displayName),
+                    )).toList(),
+                    onChanged: (value) {
+                      if (value != null) setLocal(() => selectedType = value);
+                    },
+                  ),
                   const SizedBox(height: 8),
                   TextButton.icon(
                     onPressed: () async {
@@ -189,6 +204,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                       'name': nameCtrl.text.trim(),
                       'quantity': int.tryParse(qtyCtrl.text) ?? 1,
                       'expiryDate': Timestamp.fromDate(expiry),
+                      'groceryType': selectedType.name,
                       'createdAt': FieldValue.serverTimestamp(),
                       'updatedAt': FieldValue.serverTimestamp(),
                       'source': 'barcode',

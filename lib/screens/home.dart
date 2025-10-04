@@ -6,6 +6,7 @@ import '../services/auth.dart';
 import '../services/recipes.dart';
 import '../services/notifications.dart';
 import '../widgets/item_tile.dart';
+import '../models/grocery_type.dart';
 import 'scan.dart';
 
 class HomePage extends StatefulWidget {
@@ -20,6 +21,7 @@ class _HomePageState extends State<HomePage> {
 
   User get user => _auth.currentUser!;
   String _status = 'Ready';
+  GroceryType? _selectedFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +54,32 @@ class _HomePageState extends State<HomePage> {
                 Expanded(child: Text('Hi, ${user.isAnonymous ? 'Guest' : (user.displayName ?? 'you')}')),
                 Text(_status, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
               ],
+            ),
+          ),
+          // Filter chips
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  FilterChip(
+                    label: const Text('All'),
+                    selected: _selectedFilter == null,
+                    onSelected: (selected) {
+                      setState(() => _selectedFilter = null);
+                    },
+                  ),
+                  ...GroceryType.allTypes.map((type) => FilterChip(
+                    label: Text(type.displayName),
+                    selected: _selectedFilter == type,
+                    onSelected: (selected) {
+                      setState(() => _selectedFilter = selected ? type : null);
+                    },
+                  )),
+                ],
+              ),
             ),
           ),
           Padding(
@@ -101,13 +129,30 @@ class _HomePageState extends State<HomePage> {
                 if (docs.isEmpty) {
                   return const _EmptyState();
                 }
+                
+                // Filter items by grocery type
+                final filteredDocs = _selectedFilter == null 
+                    ? docs 
+                    : docs.where((doc) {
+                        final data = doc.data();
+                        final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
+                        return groceryType == _selectedFilter;
+                      }).toList();
+                
+                if (filteredDocs.isEmpty) {
+                  return const Center(
+                    child: Text('No items found for this filter'),
+                  );
+                }
+                
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemCount: docs.length,
+                  itemCount: filteredDocs.length,
                   itemBuilder: (context, i) {
-                    final ref = docs[i].reference;
-                    final data = docs[i].data();
+                    final ref = filteredDocs[i].reference;
+                    final data = filteredDocs[i].data();
+                    final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
                     return Card(
                       elevation: 1,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -115,6 +160,7 @@ class _HomePageState extends State<HomePage> {
                         name: (data['name'] ?? 'Unknown').toString(),
                         expiry: (data['expiryDate'] as Timestamp?)?.toDate(),
                         quantity: (data['quantity'] ?? 1),
+                        groceryType: groceryType,
                         onEdit: () => _editItemDialog(ref, data),
                         onUsedHalf: () async {
                           final q = data['quantity'];
@@ -141,6 +187,7 @@ class _HomePageState extends State<HomePage> {
     final nameCtrl = TextEditingController();
     final qtyCtrl = TextEditingController(text: '1');
     DateTime expiry = DateTime.now().add(const Duration(days: 5));
+    GroceryType selectedType = GroceryType.other;
 
     Future<void> save() async {
       final name = nameCtrl.text.trim();
@@ -150,6 +197,7 @@ class _HomePageState extends State<HomePage> {
         'name': name,
         'quantity': int.tryParse(qtyCtrl.text) ?? 1,
         'expiryDate': Timestamp.fromDate(expiry),
+        'groceryType': selectedType.name,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'source': 'manual',
@@ -178,6 +226,18 @@ class _HomePageState extends State<HomePage> {
                   controller: qtyCtrl,
                   decoration: const InputDecoration(labelText: 'Quantity'),
                   keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<GroceryType>(
+                  value: selectedType,
+                  decoration: const InputDecoration(labelText: 'Grocery Type'),
+                  items: GroceryType.allTypes.map((type) => DropdownMenuItem(
+                    value: type,
+                    child: Text(type.displayName),
+                  )).toList(),
+                  onChanged: (value) {
+                    if (value != null) setLocal(() => selectedType = value);
+                  },
                 ),
                 const SizedBox(height: 8),
                 TextButton.icon(
@@ -213,12 +273,14 @@ class _HomePageState extends State<HomePage> {
     final qtyCtrl = TextEditingController(text: (data['quantity'] ?? 1).toString());
     DateTime expiry =
         (data['expiryDate'] as Timestamp?)?.toDate() ?? DateTime.now().add(const Duration(days: 5));
+    GroceryType selectedType = GroceryType.fromString(data['groceryType'] ?? 'other');
 
     Future<void> save() async {
       await ref.update({
         'name': nameCtrl.text.trim(),
         'quantity': int.tryParse(qtyCtrl.text) ?? 1,
         'expiryDate': Timestamp.fromDate(expiry),
+        'groceryType': selectedType.name,
         'updatedAt': FieldValue.serverTimestamp(),
       });
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -239,6 +301,18 @@ class _HomePageState extends State<HomePage> {
                   controller: qtyCtrl,
                   decoration: const InputDecoration(labelText: 'Quantity'),
                   keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<GroceryType>(
+                  value: selectedType,
+                  decoration: const InputDecoration(labelText: 'Grocery Type'),
+                  items: GroceryType.allTypes.map((type) => DropdownMenuItem(
+                    value: type,
+                    child: Text(type.displayName),
+                  )).toList(),
+                  onChanged: (value) {
+                    if (value != null) setLocal(() => selectedType = value);
+                  },
                 ),
                 const SizedBox(height: 8),
                 TextButton.icon(
@@ -276,18 +350,21 @@ class _HomePageState extends State<HomePage> {
         'name': 'Milk',
         'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 7))),
         'quantity': 1,
+        'groceryType': GroceryType.dairy.name,
         'source': 'seed'
       },
       {
         'name': 'Eggs',
         'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 35))),
         'quantity': 12,
+        'groceryType': GroceryType.dairy.name,
         'source': 'seed'
       },
       {
         'name': 'Berries',
         'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 5))),
         'quantity': 1,
+        'groceryType': GroceryType.fruit.name,
         'source': 'seed'
       },
     ];

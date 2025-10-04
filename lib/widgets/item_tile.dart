@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/grocery_type.dart';
 
 class ItemTile extends StatelessWidget {
   const ItemTile({
@@ -6,6 +7,7 @@ class ItemTile extends StatelessWidget {
     required this.name,
     required this.expiry,
     required this.quantity,
+    required this.groceryType,
     required this.onEdit,
     required this.onUsedHalf,
     required this.onFinish,
@@ -14,6 +16,7 @@ class ItemTile extends StatelessWidget {
   final String name;
   final DateTime? expiry;
   final num quantity;
+  final GroceryType groceryType;
   final VoidCallback onEdit;
   final Future<void> Function() onUsedHalf;
   final Future<void> Function() onFinish;
@@ -36,7 +39,7 @@ class ItemTile extends StatelessWidget {
 
     return ListTile(
       title: Text(name),
-      subtitle: Text('Qty: $quantity • Expires: $dateStr • $chip',
+      subtitle: Text('${groceryType.displayName} • Qty: $quantity • Expires: $dateStr • $chip',
           style: TextStyle(color: chipColor)),
       trailing: PopupMenuButton<String>(
         onSelected: (v) {
