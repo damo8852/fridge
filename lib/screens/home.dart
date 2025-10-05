@@ -128,6 +128,84 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _showLogoutConfirmation() async {
+    final user = _auth.currentUser;
+    final isGuestAccount = user?.isAnonymous ?? false;
+    
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Are you sure you want to sign out?'),
+            if (isGuestAccount) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_rounded,
+                      color: Colors.red,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Guest accounts will lose all data permanently when signing out. Consider creating an account to save your progress.',
+                        style: TextStyle(
+                          color: Colors.red.shade700,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: isGuestAccount ? Colors.red : null,
+            ),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      try {
+        await AuthService.instance.signOut();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to sign out: ${e.toString()}'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   void _finishSelectedItems() async {
     if (_selectedItems.isEmpty) return;
     
@@ -798,9 +876,7 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             tooltip: 'Sign out',
-            onPressed: () async {
-              await AuthService.instance.signOut();
-            },
+            onPressed: () => _showLogoutConfirmation(),
             icon: const Icon(
               Icons.logout_rounded,
               color: Color(0xFF7F8C8D),
@@ -1466,15 +1542,8 @@ class _HomePageState extends State<HomePage> {
           .get();
 
       if (snapshot.docs.isEmpty) {
-        if (!mounted) return;
-        Navigator.of(context).pop(); // Close loading dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Add some items to your fridge first!'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-        return;
+        // Allow recipe generation even with empty fridge
+        // The LLM will handle empty fridge case with pantry staples
       }
 
       // Extract ingredient names
@@ -1739,6 +1808,7 @@ class _EmptyStateState extends State<_EmptyState> {
 
   Widget _buildSustainabilityTips() {
     return Container(
+      height: 120, // Fixed height to ensure scrolling works
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFF4A90E2).withOpacity(widget.isDarkMode ? 0.15 : 0.1),
@@ -1770,12 +1840,16 @@ class _EmptyStateState extends State<_EmptyState> {
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            '• Plan meals to reduce food waste\n• Buy local and seasonal produce\n• Use leftovers creatively\n• Compost food scraps',
-            style: TextStyle(
-              fontSize: 12,
-              color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
-              height: 1.4,
+          Expanded(
+            child: SingleChildScrollView(
+              child: Text(
+                '• Plan meals to reduce food waste\n• Buy local and seasonal produce\n• Use leftovers creatively\n• Compost food scraps\n• Store food properly to extend freshness\n• Freeze excess ingredients before they spoil\n• Use vegetable scraps for homemade broth\n• Choose imperfect produce to reduce waste',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+                  height: 1.4,
+                ),
+              ),
             ),
           ),
         ],
@@ -1880,6 +1954,10 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
         }
         
         return Container(
+          constraints: const BoxConstraints(
+            minHeight: 60,
+            maxHeight: 80,
+          ),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [Color(0xFF27AE60), Color(0xFF2ECC71)],
@@ -1908,38 +1986,63 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
                 );
               },
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Icon(
                       Icons.eco_rounded,
                       color: Colors.white,
-                      size: 20,
+                      size: 16,
                     ),
-                    const SizedBox(height: 4),
-                    Text.rich(
-                      TextSpan(
-                        children: [
-                        TextSpan(
-                          text: isLoading ? 'Loading...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂ ',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                          TextSpan(
-                            text: 'Saved',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w400,
+                    const SizedBox(height: 2),
+                    Flexible(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Calculate appropriate font size based on content and available width
+                          final text = isLoading ? 'Loading...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂ Saved';
+                          final baseFontSize = 9.0;
+                          final maxWidth = constraints.maxWidth;
+                          
+                          // Estimate text width (rough calculation)
+                          final estimatedCharWidth = baseFontSize * 0.6; // Approximate character width
+                          final estimatedTextWidth = text.length * estimatedCharWidth;
+                          
+                          // Scale down font size if text is too wide
+                          double fontSize = baseFontSize;
+                          if (estimatedTextWidth > maxWidth * 0.9) {
+                            fontSize = (maxWidth * 0.9) / (text.length * 0.6);
+                            fontSize = fontSize.clamp(7.0, 11.0); // Keep within reasonable bounds
+                          }
+                          
+                          return Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: isLoading ? 'Loading...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: ' Saved',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2,
+                          );
+                        },
                       ),
-                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
