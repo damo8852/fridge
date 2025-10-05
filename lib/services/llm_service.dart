@@ -246,13 +246,13 @@ $itemName ->''';
 
   /// Generate recipe suggestions based on available ingredients
   /// Returns a list of recipe objects with name, ingredients, and instructions
-  Future<List<Map<String, dynamic>>> generateRecipes(List<String> ingredients, {int count = 2}) async {
+  Future<List<Map<String, dynamic>>> generateRecipes(List<String> ingredients, {int count = 2, List<String>? preferredCategories}) async {
     if (ingredients.isEmpty) {
       return [];
     }
 
     try {
-      final prompt = _buildRecipePrompt(ingredients, count);
+      final prompt = _buildRecipePrompt(ingredients, count, preferredCategories);
       final response = await _callOllamaForRecipes(prompt);
 
       if (response != null) {
@@ -266,21 +266,30 @@ $itemName ->''';
     return [];
   }
 
-  String _buildRecipePrompt(List<String> ingredients, int count) {
+  String _buildRecipePrompt(List<String> ingredients, int count, List<String>? preferredCategories) {
     // Limit to 4 main ingredients for simplicity
     final limitedIngredients = ingredients.take(4).toList();
     final ingredientsList = limitedIngredients.join(', ');
 
     // Focus on best tasting combinations with detailed instructions
-    return '''You have these ingredients: $ingredientsList
+    String categoryInstruction = '';
+    if (preferredCategories != null && preferredCategories.isNotEmpty) {
+      categoryInstruction = '\n\nIMPORTANT: Focus on recipes that primarily use ingredients from these categories: ${preferredCategories.join(', ')}.';
+    }
+    
+    return '''You have these ingredients available in your fridge: $ingredientsList
 
-Suggest $count simple, delicious recipes. Focus on the BEST tasting combinations, not using all ingredients.
+Suggest $count simple, delicious recipes using these available ingredients.$categoryInstruction
+
+IMPORTANT INGREDIENT DISTINCTION:
+- "ingredients" array should ONLY include ingredients that are available in the fridge (from the list above)
+- "shoppingList" array should include ingredients that need to be purchased (NOT in the fridge)
 
 Return ONLY a valid JSON array with this exact format:
 [
   {
     "name": "Recipe Name",
-    "ingredients": ["2 tbsp olive oil", "1 lb chicken breast, cubed", "1 cup grapes"],
+    "ingredients": ["1 lb chicken breast, cubed", "1 cup grapes"],
     "instructions": [
       "Heat oil in a large skillet over medium-high heat",
       "Add chicken and cook for 5-6 minutes until golden brown",
@@ -294,12 +303,14 @@ Return ONLY a valid JSON array with this exact format:
 ]
 
 Rules:
-- Focus on TASTE, not using every ingredient
+- "ingredients" array: ONLY use ingredients from the available list: $ingredientsList
+- "shoppingList" array: ingredients NOT in the fridge that need to be bought
+- Focus on TASTE, not using every available ingredient
 - Pick the BEST combinations from available ingredients
-- Include specific quantities and cooking times in ingredients
+- Include specific quantities in ingredients array
 - Write detailed, step-by-step instructions (4-6 steps)
 - Include cooking temperatures and times
-- Suggest 1-3 additional ingredients maximum
+- Suggest minimal additional ingredients to buy (1-3 items max)
 - Make simple, delicious recipes people love
 - Don't force weird combinations
 

@@ -26,7 +26,7 @@ class ItemTile extends StatelessWidget {
   IconData _getGroceryIcon(GroceryType type) {
     switch (type) {
       case GroceryType.meat:
-        return Icons.emoji_food_beverage_rounded;
+        return Icons.restaurant_rounded;
       case GroceryType.poultry:
         return Icons.egg_rounded;
       case GroceryType.seafood:
@@ -156,24 +156,28 @@ class ItemTile extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFE8F4FD),
+                        color: Colors.transparent,
                         borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF3498DB),
+                          width: 1,
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.inventory_2_rounded,
                             size: 12,
-                            color: Color(0xFF3498DB),
+                            color: isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF3498DB),
                           ),
                           const SizedBox(width: 4),
                           Text(
                             'Qty: $quantity',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
-                              color: Color(0xFF3498DB),
+                              color: isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF3498DB),
                             ),
                           ),
                         ],

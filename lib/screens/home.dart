@@ -23,9 +23,7 @@ class _HomePageState extends State<HomePage> {
   final _db = FirebaseFirestore.instance;
 
   User get user => _auth.currentUser!;
-  String _status = 'Ready';
   Set<GroceryType> _selectedFilters = {};
-  bool _llmAvailable = false;
   late final ThemeService _themeService;
   
   // Sorting options
@@ -36,7 +34,6 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _themeService = ThemeService();
     _themeService.addListener(_onThemeChanged);
-    _checkLLMAvailability();
   }
 
   void _onThemeChanged() {
@@ -51,173 +48,278 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  Future<void> _checkLLMAvailability() async {
-    final available = await LLMService().isAvailable();
-    if (mounted) {
-      setState(() => _llmAvailable = available);
-    }
-  }
 
   void _toggleDarkMode() {
     _themeService.toggleDarkMode();
   }
 
-  void _showCategoryPicker() {
-    showDialog(
+  String _getSortDisplayName(String sortOption) {
+    switch (sortOption) {
+      case 'expiry_asc':
+        return 'Expiry (Earliest First)';
+      case 'expiry_desc':
+        return 'Expiry (Latest First)';
+      case 'name_asc':
+        return 'Name (A-Z)';
+      case 'name_desc':
+        return 'Name (Z-A)';
+      case 'quantity_asc':
+        return 'Quantity (Low to High)';
+      case 'quantity_desc':
+        return 'Quantity (High to Low)';
+      case 'type_asc':
+        return 'Category (A-Z)';
+      case 'type_desc':
+        return 'Category (Z-A)';
+      default:
+        return 'Default';
+    }
+  }
+
+  void _showCompactFilters() {
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-        title: Text(
-          'Filter by Category',
-          style: TextStyle(
-            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-            fontWeight: FontWeight.bold,
+        builder: (context, setDialogState) => Container(
+          height: MediaQuery.of(context).size.height * 0.7,
+          decoration: BoxDecoration(
+            color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
-        ),
-        backgroundColor: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
-        content: SizedBox(
-          width: double.maxFinite,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              // All Items option
+              // Handle bar
               Container(
-                margin: const EdgeInsets.only(bottom: 8),
+                margin: const EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: _selectedFilters.isEmpty 
-                      ? const Color(0xFF4A90E2).withOpacity(0.1)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _selectedFilters.isEmpty 
-                        ? const Color(0xFF4A90E2)
-                        : (_themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder),
-                  ),
-                ),
-                child: ListTile(
-                  leading: const Icon(
-                    Icons.all_inclusive_rounded,
-                    color: Color(0xFF4A90E2),
-                  ),
-                  title: const Text('All Items'),
-                  onTap: () {
-                    setState(() => _selectedFilters.clear());
-                    setDialogState(() {});
-                    Navigator.pop(context);
-                  },
+                  color: _themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              // Category grid
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 3,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
+              // Header
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.tune_rounded,
+                      color: Color(0xFF4A90E2),
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Filters',
+                      style: TextStyle(
+                        color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                      ),
+                    ),
+                  ],
                 ),
-                itemCount: GroceryType.allTypes.length,
-                itemBuilder: (context, index) {
-                  final type = GroceryType.allTypes[index];
-                  final isSelected = _selectedFilters.contains(type);
-                  final color = _getGroceryColor(type);
-                  final icon = _getGroceryIcon(type);
-                  
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: isSelected 
-                          ? color.withOpacity(0.1)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelected 
-                            ? color
-                            : (_themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder),
+              ),
+              // Multi-column filters
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    children: [
+                      // Categories Column
+                      _buildFilterColumn(
+                        'CATEGORIES',
+                        Icons.category_rounded,
+                        GroceryType.allTypes.map((type) => _FilterOption(
+                          label: type.displayName,
+                          icon: _getGroceryIcon(type),
+                          color: _getGroceryColor(type),
+                          isSelected: _selectedFilters.contains(type),
+                          onTap: () {
+                            setState(() {
+                              if (_selectedFilters.contains(type)) {
+                                _selectedFilters.remove(type);
+                              } else {
+                                _selectedFilters.add(type);
+                              }
+                            });
+                            setDialogState(() {});
+                          },
+                        )).toList(),
                       ),
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () {
-                          setState(() {
-                            if (_selectedFilters.contains(type)) {
-                              _selectedFilters.remove(type);
-                            } else {
-                              _selectedFilters.add(type);
-                            }
-                          });
-                          setDialogState(() {});
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          child: Row(
-                            children: [
-                              Icon(
-                                icon,
-                                color: color,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  type.displayName,
-                                  style: TextStyle(
-                                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                    fontSize: 13,
-                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (isSelected)
-                                Icon(
-                                  Icons.check_circle_rounded,
-                                  color: color,
-                                  size: 16,
-                                ),
-                            ],
+                      const SizedBox(height: 20),
+                      // Sort Column
+                      _buildFilterColumn(
+                        'SORT BY',
+                        Icons.sort_rounded,
+                        [
+                          _FilterOption(
+                            label: 'Expiry (Earliest First)',
+                            icon: Icons.schedule_rounded,
+                            color: const Color(0xFF27AE60),
+                            isSelected: _sortOption == 'expiry_asc',
+                            onTap: () {
+                              setState(() => _sortOption = 'expiry_asc');
+                              setDialogState(() {});
+                            },
                           ),
-                        ),
+                          _FilterOption(
+                            label: 'Expiry (Latest First)',
+                            icon: Icons.schedule_rounded,
+                            color: const Color(0xFF27AE60),
+                            isSelected: _sortOption == 'expiry_desc',
+                            onTap: () {
+                              setState(() => _sortOption = 'expiry_desc');
+                              setDialogState(() {});
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Name (A-Z)',
+                            icon: Icons.sort_by_alpha_rounded,
+                            color: const Color(0xFF27AE60),
+                            isSelected: _sortOption == 'name_asc',
+                            onTap: () {
+                              setState(() => _sortOption = 'name_asc');
+                              setDialogState(() {});
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Name (Z-A)',
+                            icon: Icons.sort_by_alpha_rounded,
+                            color: const Color(0xFF27AE60),
+                            isSelected: _sortOption == 'name_desc',
+                            onTap: () {
+                              setState(() => _sortOption = 'name_desc');
+                              setDialogState(() {});
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Quantity (Low to High)',
+                            icon: Icons.inventory_2_rounded,
+                            color: const Color(0xFF27AE60),
+                            isSelected: _sortOption == 'quantity_asc',
+                            onTap: () {
+                              setState(() => _sortOption = 'quantity_asc');
+                              setDialogState(() {});
+                            },
+                          ),
+                          _FilterOption(
+                            label: 'Quantity (High to Low)',
+                            icon: Icons.inventory_2_rounded,
+                            color: const Color(0xFF27AE60),
+                            isSelected: _sortOption == 'quantity_desc',
+                            onTap: () {
+                              setState(() => _sortOption = 'quantity_desc');
+                              setDialogState(() {});
+                            },
+                          ),
+                        ],
                       ),
-                    ),
-                  );
-                },
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-        ],
       ),
-    ),
     );
   }
 
-
-  IconData _getSortIcon(String sortOption) {
-    switch (sortOption) {
-      case 'expiry_asc':
-      case 'expiry_desc':
-        return Icons.schedule_rounded;
-      case 'name_asc':
-      case 'name_desc':
-        return Icons.sort_by_alpha_rounded;
-      case 'quantity_asc':
-      case 'quantity_desc':
-        return Icons.inventory_2_rounded;
-      case 'type_asc':
-      case 'type_desc':
-        return Icons.category_rounded;
-      default:
-        return Icons.sort_rounded;
-    }
+  Widget _buildFilterColumn(String title, IconData titleIcon, List<_FilterOption> options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              titleIcon,
+              color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+              size: 16,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: TextStyle(
+                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          height: 1,
+          color: _themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder,
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: options.map((option) => _buildFilterChip(option)).toList(),
+        ),
+      ],
+    );
   }
+
+  Widget _buildFilterChip(_FilterOption option) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: option.onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: option.isSelected 
+                ? option.color.withOpacity(0.1)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: option.isSelected 
+                  ? option.color
+                  : (_themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                option.icon,
+                color: option.color,
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                option.label,
+                style: TextStyle(
+                  color: option.isSelected 
+                      ? option.color
+                      : (_themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary),
+                  fontSize: 12,
+                  fontWeight: option.isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortItems(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> items,
@@ -343,7 +445,7 @@ class _HomePageState extends State<HomePage> {
   IconData _getGroceryIcon(GroceryType type) {
     switch (type) {
       case GroceryType.meat:
-        return Icons.emoji_food_beverage_rounded;
+        return Icons.restaurant_rounded;
       case GroceryType.poultry:
         return Icons.egg_rounded;
       case GroceryType.seafood:
@@ -534,44 +636,16 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _llmAvailable ? Icons.auto_awesome : Icons.auto_awesome_outlined,
-                        size: 18,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _status,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
-          // Filter and Sort controls
+          // Compact Filter Button
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                // Filter dropdown
                 Expanded(
                   child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     decoration: BoxDecoration(
                       color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
                       borderRadius: BorderRadius.circular(16),
@@ -583,298 +657,42 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ],
                     ),
-                    child: Row(
-                children: [
-                        const Icon(
-                          Icons.filter_list_rounded,
-                          color: Color(0xFF4A90E2),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => _showCategoryPicker(),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: _themeService.isDarkMode ? const Color(0xFF4A4A4A) : const Color(0xFFE0E0E0),
-                                  width: 1,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => _showCompactFilters(),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.tune_rounded,
+                                color: Color(0xFF4A90E2),
+                                size: 20,
                               ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _selectedFilters.isNotEmpty 
-                                        ? Icons.filter_list_rounded
-                                        : Icons.all_inclusive_rounded,
-                                    color: _selectedFilters.isNotEmpty 
-                                        ? const Color(0xFF4A90E2)
-                                        : const Color(0xFF4A90E2),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      _selectedFilters.isEmpty 
-                                          ? 'All Items'
-                                          : _selectedFilters.length == 1
-                                              ? _selectedFilters.first.displayName
-                                              : '${_selectedFilters.length} Categories',
-                                      style: TextStyle(
-                                        color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                        fontSize: 14,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ),
-                                  const Icon(
-                                    Icons.arrow_drop_down_rounded,
-                                    color: Color(0xFF7F8C8D),
-                                    size: 20,
-                                  ),
-                ],
-              ),
-            ),
-          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // Sort dropdown
-                Expanded(
-                  child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.08),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-              children: [
-                        Icon(
-                          _getSortIcon(_sortOption),
-                          color: const Color(0xFF27AE60),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _sortOption,
-                              isExpanded: true,
-                              items: [
-                                DropdownMenuItem<String>(
-                                  value: 'expiry_asc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.schedule_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Expiry (Soon)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _selectedFilters.isEmpty 
+                                      ? 'All Items • ${_getSortDisplayName(_sortOption)}'
+                                      : '${_selectedFilters.length} Categories • ${_getSortDisplayName(_sortOption)}',
+                                  style: TextStyle(
+                                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                                DropdownMenuItem<String>(
-                                  value: 'expiry_desc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.schedule_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Expiry (Late)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                DropdownMenuItem<String>(
-                                  value: 'name_asc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.sort_by_alpha_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Name (A-Z)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                DropdownMenuItem<String>(
-                                  value: 'name_desc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.sort_by_alpha_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Name (Z-A)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                DropdownMenuItem<String>(
-                                  value: 'quantity_asc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.inventory_2_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Qty (Low)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                DropdownMenuItem<String>(
-                                  value: 'quantity_desc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.inventory_2_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Qty (High)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                DropdownMenuItem<String>(
-                                  value: 'type_asc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.category_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Category (A-Z)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                DropdownMenuItem<String>(
-                                  value: 'type_desc',
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.category_rounded,
-                                        color: Color(0xFF27AE60),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Category (Z-A)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              onChanged: (value) {
-                                if (value != null) {
-                                  setState(() => _sortOption = value);
-                                }
-                              },
-                            ),
+                              ),
+                              Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                                size: 16,
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
@@ -887,12 +705,7 @@ class _HomePageState extends State<HomePage> {
             child: Row(
               children: [
                 Expanded(
-                  child: _buildActionButton(
-                  onPressed: _seedTestData,
-                    icon: Icons.auto_awesome_rounded,
-                    label: 'Seed Data',
-                    color: const Color(0xFF9B59B6),
-                ),
+                  child: _CarbonEmissionsWidget(isDarkMode: _themeService.isDarkMode),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -998,7 +811,30 @@ class _HomePageState extends State<HomePage> {
                             'updatedAt': FieldValue.serverTimestamp(),
                           });
                         },
-                        onFinish: () async => ref.delete(),
+                        onFinish: () async {
+                          // Move item to finished_items collection before deleting
+                          final docSnapshot = await ref.get();
+                          if (docSnapshot.exists) {
+                            final data = docSnapshot.data() as Map<String, dynamic>;
+                            final user = _auth.currentUser!;
+                            final finishedItemsRef = _db
+                                .collection('users')
+                                .doc(user.uid)
+                                .collection('finished_items')
+                                .doc();
+                            
+                            await finishedItemsRef.set({
+                              'name': data['name'],
+                              'quantity': data['quantity'],
+                              'groceryType': data['groceryType'],
+                              'finishedAt': FieldValue.serverTimestamp(),
+                              'originalExpiryDate': data['expiryDate'],
+                            });
+                          }
+                          
+                          // Now delete from main collection
+                          await ref.delete();
+                        },
                       ),
                     );
                   },
@@ -1250,54 +1086,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _seedTestData() async {
-    final ownerId = user.uid;
-    final itemsRef = _db.collection('users').doc(ownerId).collection('items');
-
-    final now = DateTime.now();
-    final sample = [
-      {
-        'name': 'Milk',
-        'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 7))),
-        'quantity': 1,
-        'groceryType': GroceryType.dairy.name,
-        'source': 'seed'
-      },
-      {
-        'name': 'Eggs',
-        'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 35))),
-        'quantity': 12,
-        'groceryType': GroceryType.dairy.name,
-        'source': 'seed'
-      },
-      {
-        'name': 'Berries',
-        'expiryDate': Timestamp.fromDate(now.add(const Duration(days: 5))),
-        'quantity': 1,
-        'groceryType': GroceryType.fruit.name,
-        'source': 'seed'
-      },
-    ];
-
-    final batch = _db.batch();
-    for (final item in sample) {
-      final doc = itemsRef.doc();
-      batch.set(doc, {
-        ...item,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      final expiry = (item['expiryDate'] as Timestamp).toDate();
-      await NotificationsService.instance.scheduleExpiryReminder(
-        id: doc.id.hashCode,
-        title: 'Use soon: ${item['name']}',
-        body: 'Expires tomorrow',
-        when: expiry.subtract(const Duration(days: 1)),
-      );
-    }
-    await batch.commit();
-    if (mounted) setState(() => _status = 'Seeded ${sample.length} items');
-  }
 
   Future<void> _recommendRecipes() async {
     if (!mounted) return;
@@ -1326,7 +1114,6 @@ class _HomePageState extends State<HomePage> {
       ),
     );
 
-    setState(() => _status = 'Generating…');
 
     try {
       // Check if LLM is available
@@ -1340,7 +1127,6 @@ class _HomePageState extends State<HomePage> {
             duration: Duration(seconds: 3),
           ),
         );
-        setState(() => _status = 'LLM unavailable');
         return;
       }
 
@@ -1361,7 +1147,6 @@ class _HomePageState extends State<HomePage> {
             duration: Duration(seconds: 3),
           ),
         );
-        setState(() => _status = 'No items');
         return;
       }
 
@@ -1377,12 +1162,27 @@ class _HomePageState extends State<HomePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No ingredients found')),
         );
-        setState(() => _status = 'No ingredients');
         return;
       }
 
+      // Filter ingredients by selected categories if any are selected
+      final filteredIngredients = _selectedFilters.isEmpty 
+          ? ingredients
+          : ingredients.where((ingredient) {
+              // For now, we'll use a simple approach - if filters are selected,
+              // we'll pass them to the LLM to focus on those categories
+              return true; // We'll let the LLM handle the filtering based on categories
+            }).toList();
+
       // Generate recipes using local LLM (requesting 2 for faster generation)
-      final recipeData = await LLMService().generateRecipes(ingredients, count: 2);
+      // Pass selected filters to help the LLM focus on those categories
+      final recipeData = await LLMService().generateRecipes(
+        filteredIngredients, 
+        count: 2,
+        preferredCategories: _selectedFilters.isNotEmpty 
+            ? _selectedFilters.map((type) => type.displayName).toList()
+            : null,
+      );
 
       if (!mounted) return;
       Navigator.of(context).pop(); // Close loading dialog
@@ -1394,7 +1194,6 @@ class _HomePageState extends State<HomePage> {
             duration: Duration(seconds: 3),
           ),
         );
-        setState(() => _status = 'Generation failed');
         return;
       }
 
@@ -1412,22 +1211,103 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
-      setState(() => _status = 'Ready');
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop(); // Close loading dialog
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error generating recipes: $e')),
       );
-      setState(() => _status = 'Error');
     }
   }
 }
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends StatefulWidget {
   const _EmptyState({required this.isDarkMode});
   
   final bool isDarkMode;
+
+  @override
+  State<_EmptyState> createState() => _EmptyStateState();
+}
+
+class _EmptyStateState extends State<_EmptyState> {
+  double _carbonSaved = 0.0;
+  int _itemsFinished = 0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateCarbonSavings();
+  }
+
+  Future<void> _calculateCarbonSavings() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // Query for finished items (items that were consumed/used)
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('finished_items')
+          .get();
+
+      int totalItems = 0;
+      double totalCarbon = 0.0;
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final quantity = (data['quantity'] ?? 1) as num;
+        final groceryType = data['groceryType'] ?? 'other';
+        
+        totalItems += quantity.toInt();
+        
+        // Calculate carbon footprint based on food type
+        // These are approximate CO2 equivalents in kg per kg of food
+        double carbonPerKg = _getCarbonFootprint(groceryType);
+        totalCarbon += quantity * carbonPerKg * 0.5; // Assume average 0.5kg per item
+      }
+
+      if (mounted) {
+        setState(() {
+          _carbonSaved = totalCarbon;
+          _itemsFinished = totalItems;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  double _getCarbonFootprint(String groceryType) {
+    // Carbon footprint in kg CO2 per kg of food (approximate values)
+    switch (groceryType) {
+      case 'meat':
+        return 27.0; // Beef has highest carbon footprint
+      case 'poultry':
+        return 6.9; // Chicken
+      case 'seafood':
+        return 13.6; // Fish
+      case 'dairy':
+        return 3.2; // Dairy products
+      case 'vegetable':
+        return 2.0; // Vegetables
+      case 'fruit':
+        return 1.0; // Fruits
+      case 'grain':
+        return 1.4; // Grains
+      case 'frozen':
+        return 3.0; // Frozen foods (higher due to energy)
+      default:
+        return 2.5; // Average
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1440,13 +1320,13 @@ class _EmptyState extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF4A90E2).withOpacity(isDarkMode ? 0.2 : 0.1),
+                color: const Color(0xFF27AE60).withOpacity(widget.isDarkMode ? 0.2 : 0.1),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Icon(
-                Icons.kitchen_outlined,
+                Icons.eco_rounded,
                 size: 64,
-                color: Color(0xFF4A90E2),
+                color: Color(0xFF27AE60),
               ),
             ),
             const SizedBox(height: 20),
@@ -1455,19 +1335,285 @@ class _EmptyState extends StatelessWidget {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
+                color: widget.isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            if (_isLoading)
+              const CircularProgressIndicator()
+            else ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF27AE60).withOpacity(widget.isDarkMode ? 0.15 : 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF27AE60).withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.eco_rounded,
+                          color: Color(0xFF27AE60),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Carbon Impact Saved',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: widget.isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${_carbonSaved.toStringAsFixed(1)} kg CO₂',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF27AE60),
+                      ),
+                    ),
+                    Text(
+                      'from ${_itemsFinished} items finished',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildSustainabilityTips(),
+            ],
+            const SizedBox(height: 16),
             Text(
               'Tap "Add Item" to start tracking your groceries',
               style: TextStyle(
                 fontSize: 14,
-                color: isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+                color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
               ),
               textAlign: TextAlign.center,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSustainabilityTips() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF4A90E2).withOpacity(widget.isDarkMode ? 0.15 : 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF4A90E2).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.lightbulb_outline_rounded,
+                color: Color(0xFF4A90E2),
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Sustainability Tips',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: widget.isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '• Plan meals to reduce food waste\n• Buy local and seasonal produce\n• Use leftovers creatively\n• Compost food scraps',
+            style: TextStyle(
+              fontSize: 12,
+              color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterOption {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  _FilterOption({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.isSelected,
+    required this.onTap,
+  });
+}
+
+class _CarbonEmissionsWidget extends StatefulWidget {
+  const _CarbonEmissionsWidget({required this.isDarkMode});
+  
+  final bool isDarkMode;
+
+  @override
+  State<_CarbonEmissionsWidget> createState() => _CarbonEmissionsWidgetState();
+}
+
+class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
+  double _carbonSaved = 0.0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateCarbonSavings();
+  }
+
+  Future<void> _calculateCarbonSavings() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('finished_items')
+          .get();
+
+      double totalCarbon = 0.0;
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final quantity = (data['quantity'] ?? 1) as num;
+        final groceryType = data['groceryType'] ?? 'other';
+        
+        double carbonPerKg = _getCarbonFootprint(groceryType);
+        totalCarbon += quantity * carbonPerKg * 0.5; // Assume average 0.5kg per item
+      }
+
+      if (mounted) {
+        setState(() {
+          _carbonSaved = totalCarbon;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  double _getCarbonFootprint(String groceryType) {
+    switch (groceryType) {
+      case 'meat':
+        return 27.0;
+      case 'poultry':
+        return 6.9;
+      case 'seafood':
+        return 13.6;
+      case 'dairy':
+        return 3.2;
+      case 'vegetable':
+        return 2.0;
+      case 'fruit':
+        return 1.0;
+      case 'grain':
+        return 1.4;
+      case 'frozen':
+        return 3.0;
+      default:
+        return 2.5;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF27AE60), Color(0xFF2ECC71)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF27AE60).withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('You\'ve saved ${_carbonSaved.toStringAsFixed(1)} kg CO₂ by using your food!'),
+                backgroundColor: const Color(0xFF27AE60),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.eco_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _isLoading ? 'Loading...' : '${_carbonSaved.toStringAsFixed(1)} kg',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const Text(
+                  'CO₂ Saved',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

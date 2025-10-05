@@ -5,6 +5,7 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'screens/auth_gate.dart';
 import 'services/notifications.dart';
+import 'services/theme_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,9 @@ Future<void> main() async {
 
   // Local notifications
   await NotificationsService.instance.init(); // creates channel, requests permissions on iOS/Android 13+
+
+  // Initialize theme service
+  await ThemeService().init();
 
   runApp(const FridgeApp());
 }

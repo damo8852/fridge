@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/recipe.dart';
+import '../services/theme_service.dart';
 
-class RecipesScreen extends StatelessWidget {
+class RecipesScreen extends StatefulWidget {
   final List<Recipe> recipes;
   final List<String> usedIngredients;
 
@@ -12,13 +13,50 @@ class RecipesScreen extends StatelessWidget {
   });
 
   @override
+  State<RecipesScreen> createState() => _RecipesScreenState();
+}
+
+class _RecipesScreenState extends State<RecipesScreen> {
+  bool _showIngredientsDetails = false;
+  late final ThemeService _themeService;
+
+  @override
+  void initState() {
+    super.initState();
+    _themeService = ThemeService();
+    _themeService.addListener(_onThemeChanged);
+  }
+
+  void _onThemeChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _themeService.removeListener(_onThemeChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
       appBar: AppBar(
-        title: const Text('Recipe Suggestions'),
+        title: Text(
+          'Recipe Suggestions',
+          style: TextStyle(
+            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+          ),
+        ),
+        backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
         elevation: 0,
+        iconTheme: IconThemeData(
+          color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+        ),
       ),
-      body: recipes.isEmpty
+      body: widget.recipes.isEmpty
           ? _buildEmptyState(context)
           : Column(
               children: [
@@ -26,9 +64,9 @@ class RecipesScreen extends StatelessWidget {
                 Expanded(
                   child: ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: recipes.length,
+                    itemCount: widget.recipes.length,
                     itemBuilder: (context, index) {
-                      return _buildRecipeCard(context, recipes[index]);
+                      return _buildRecipeCard(context, widget.recipes[index]);
                     },
                   ),
                 ),
@@ -39,40 +77,70 @@ class RecipesScreen extends StatelessWidget {
 
   Widget _buildIngredientsHeader(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(16),
-          bottomRight: Radius.circular(16),
-        ),
+        color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: _themeService.isDarkMode ? Border.all(color: ThemeService.darkBorder) : null,
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Using ingredients from your fridge:',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
+          InkWell(
+            onTap: () {
+              setState(() {
+                _showIngredientsDetails = !_showIngredientsDetails;
+              });
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.kitchen_rounded,
+                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.onPrimaryContainer,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Using ${widget.usedIngredients.length} ingredients from your fridge',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                  Icon(
+                    _showIngredientsDetails ? Icons.expand_less : Icons.expand_more,
+                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: usedIngredients.map((ingredient) {
-              return Chip(
-                label: Text(ingredient),
-                backgroundColor: Theme.of(context).colorScheme.surface,
-                labelStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 12,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              );
-            }).toList(),
-          ),
+          if (_showIngredientsDetails)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: widget.usedIngredients.map((ingredient) {
+                  return Chip(
+                    label: Text(
+                      ingredient,
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    backgroundColor: _themeService.isDarkMode ? ThemeService.darkBorder : Theme.of(context).colorScheme.surface,
+                    labelStyle: TextStyle(
+                      color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.onSurface,
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  );
+                }).toList(),
+              ),
+            ),
         ],
       ),
     );
@@ -82,6 +150,7 @@ class RecipesScreen extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 2,
+      color: _themeService.isDarkMode ? ThemeService.darkCardBackground : null,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
         onTap: () => _showRecipeDetails(context, recipe),
@@ -98,6 +167,7 @@ class RecipesScreen extends StatelessWidget {
                       recipe.name,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
+                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : null,
                           ),
                     ),
                   ),
@@ -142,16 +212,16 @@ class RecipesScreen extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.kitchen,
-                        size: 16,
-                        color: Theme.of(context).colorScheme.secondary,
-                      ),
+                        Icon(
+                          Icons.kitchen,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       const SizedBox(width: 4),
                       Text(
-                        '${recipe.ingredients.length} ingredients',
+                        '${recipe.ingredients.length} from fridge',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.secondary,
+                              color: Theme.of(context).colorScheme.primary,
                             ),
                       ),
                     ],
@@ -177,10 +247,12 @@ class RecipesScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
+              // Available ingredients section
               Text(
-                'Ingredients:',
+                'Available in your fridge:',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
               ),
               const SizedBox(height: 4),
@@ -189,15 +261,17 @@ class RecipesScreen extends StatelessWidget {
                     child: Row(
                       children: [
                         Icon(
-                          Icons.circle,
-                          size: 6,
-                          color: Theme.of(context).colorScheme.outline,
+                          Icons.check_circle_outline,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             ingredient,
-                            style: Theme.of(context).textTheme.bodyMedium,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
                           ),
                         ),
                       ],
@@ -207,13 +281,57 @@ class RecipesScreen extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(left: 8, top: 4),
                   child: Text(
-                    '+ ${recipe.ingredients.length - 3} more',
+                    '+ ${recipe.ingredients.length - 3} more from fridge',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.secondary,
+                          color: Theme.of(context).colorScheme.primary,
                           fontStyle: FontStyle.italic,
                         ),
                   ),
                 ),
+              // Shopping list section
+              if (recipe.shoppingList.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Need to buy:',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.tertiary,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                ...recipe.shoppingList.take(2).map((item) => Padding(
+                      padding: const EdgeInsets.only(left: 8, top: 2),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 16,
+                            color: Theme.of(context).colorScheme.tertiary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              item,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context).colorScheme.tertiary,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+                if (recipe.shoppingList.length > 2)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 4),
+                    child: Text(
+                      '+ ${recipe.shoppingList.length - 2} more to buy',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.tertiary,
+                            fontStyle: FontStyle.italic,
+                          ),
+                    ),
+                  ),
+              ],
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.centerRight,
@@ -290,9 +408,10 @@ class RecipesScreen extends StatelessWidget {
                     ),
               const SizedBox(height: 24),
               Text(
-                'Ingredients',
+                'Available in your fridge',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
               ),
               const SizedBox(height: 12),
@@ -319,9 +438,10 @@ class RecipesScreen extends StatelessWidget {
               if (recipe.shoppingList.isNotEmpty) ...[
                 const SizedBox(height: 24),
                 Text(
-                  'Shopping List',
+                  'Need to buy',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.tertiary,
                       ),
                 ),
                 const SizedBox(height: 12),
@@ -416,19 +536,21 @@ class RecipesScreen extends StatelessWidget {
             Icon(
               Icons.restaurant_menu,
               size: 64,
-              color: Theme.of(context).colorScheme.outline,
+              color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.outline,
             ),
             const SizedBox(height: 16),
             Text(
               'No recipes generated',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : null,
+                  ),
             ),
             const SizedBox(height: 8),
             Text(
               'Try adding more items to your fridge or check your Ollama connection.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.outline,
+                    color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.outline,
                   ),
             ),
           ],

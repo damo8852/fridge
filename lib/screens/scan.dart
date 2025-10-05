@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+// Removed mobile_scanner import
 import 'package:image_picker/image_picker.dart';
 
 import '../services/parser.dart';
-import '../services/notifications.dart';
+// Removed notifications import (was only used for barcode functionality)
 import '../services/llm_service.dart';
 import '../services/theme_service.dart';
 import '../models/grocery_type.dart';
@@ -23,8 +23,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
 
-  late final TabController _tab;
-  late final MobileScannerController _barcodeCtrl;
+  // Removed barcode scanner components
   final _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
   List<ParsedItem> _preview = [];
@@ -35,26 +34,14 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   ExpiryRules? _rules;
   UpcMap? _upc;
 
-  bool _handlingBarcode = false;
+  // Removed barcode handling
 
   @override
   void initState() {
     super.initState();
     _themeService = ThemeService();
     _themeService.addListener(_onThemeChanged);
-    _tab = TabController(length: 2, vsync: this);
-    _barcodeCtrl = MobileScannerController(
-      facing: CameraFacing.back,
-      detectionSpeed: DetectionSpeed.normal,
-      torchEnabled: false,
-      formats: const [
-        BarcodeFormat.ean13,
-        BarcodeFormat.ean8,
-        BarcodeFormat.upcA,
-        BarcodeFormat.upcE,
-        BarcodeFormat.code128,
-      ],
-    );
+    // Removed tab controller and barcode scanner initialization
     _loadAssets();
   }
 
@@ -77,8 +64,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   @override
   void dispose() {
     _themeService.removeListener(_onThemeChanged);
-    _tab.dispose();
-    _barcodeCtrl.dispose();
+    // Removed tab controller and barcode scanner disposal
     _textRecognizer.close();
     super.dispose();
   }
@@ -220,120 +206,9 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     }
   }
 
-  Future<void> _handleBarcode(String upc) async {
-    if (_handlingBarcode) return;
-    _handlingBarcode = true;
-    try {
-      final upcMap = _upc ?? await UpcMap.load();
-      final suggested = upcMap.nameFor(upc);
-      await _confirmAndSaveBarcode(suggested);
-    } finally {
-      _handlingBarcode = false;
-      if (mounted) await _barcodeCtrl.start();
-    }
-  }
+  // Removed barcode handling methods
 
-  Future<void> _confirmAndSaveBarcode(String name) async {
-    final nameCtrl = TextEditingController(text: name);
-    final qtyCtrl = TextEditingController(text: '1');
-    final rules = _rules ?? await ExpiryRules.load();
-    
-    // Try LLM prediction first, fallback to rules
-    int days = rules.guessDays(name);
-    GroceryType selectedType = GroceryType.other;
-    
-    try {
-      final prediction = await LLMService().predictExpiryAndType(name);
-      if (prediction != null) {
-        days = prediction['days'] as int? ?? rules.guessDays(name);
-        final typeStr = prediction['type'] as String?;
-        if (typeStr != null) {
-          selectedType = GroceryType.fromString(typeStr);
-        }
-      }
-    } catch (e) {
-      print('LLM prediction failed for $name, using rules: $e');
-    }
-    
-    DateTime expiry = DateTime.now().add(Duration(days: days));
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) {
-        return StatefulBuilder(
-          builder: (context, setLocal) {
-            return AlertDialog(
-              title: const Text('Add from barcode'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
-                  TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: 'Quantity'), keyboardType: TextInputType.number),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<GroceryType>(
-                    value: selectedType,
-                    decoration: const InputDecoration(labelText: 'Grocery Type'),
-                    items: GroceryType.allTypes.map((type) => DropdownMenuItem(
-                      value: type,
-                      child: Text(type.displayName),
-                    )).toList(),
-                    onChanged: (value) {
-                      if (value != null) setLocal(() => selectedType = value);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: expiry,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 120)),
-                      );
-                      if (picked != null) setLocal(() => expiry = picked);
-                    },
-                    icon: const Icon(Icons.calendar_month),
-                    label: Text('Expires ${expiry.toLocal().toString().split(' ').first}'),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final user = _auth.currentUser!;
-                    final col = _db.collection('users').doc(user.uid).collection('items');
-                    final doc = col.doc();
-                    await doc.set({
-                      'name': nameCtrl.text.trim(),
-                      'quantity': int.tryParse(qtyCtrl.text) ?? 1,
-                      'expiryDate': Timestamp.fromDate(expiry),
-                      'groceryType': selectedType.name,
-                      'createdAt': FieldValue.serverTimestamp(),
-                      'updatedAt': FieldValue.serverTimestamp(),
-                      'source': 'barcode',
-                    });
-                    await NotificationsService.instance.scheduleExpiryReminder(
-                      id: doc.id.hashCode,
-                      title: 'Use soon: ${nameCtrl.text.trim()}',
-                      body: 'Expires tomorrow',
-                      when: expiry.subtract(const Duration(days: 1)),
-                    );
-                    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
+  // Removed _confirmAndSave method (was for barcode functionality)
 
   void _editParsedItem(int index) {
     final it = _preview[index];
@@ -410,6 +285,9 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
         ),
         backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
         elevation: 0,
+        iconTheme: IconThemeData(
+          color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+        ),
         actions: [
           IconButton(
             tooltip: _themeService.isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
@@ -425,31 +303,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
           ),
           const SizedBox(width: 8),
         ],
-        bottom: TabBar(
-          controller: _tab,
-          labelColor: const Color(0xFF27AE60),
-          unselectedLabelColor: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
-          indicatorColor: const Color(0xFF27AE60),
-          indicatorWeight: 3,
-          tabs: const [
-            Tab(
-              icon: Icon(Icons.receipt_rounded),
-              text: 'Receipt',
-            ),
-            Tab(
-              icon: Icon(Icons.qr_code_rounded),
-              text: 'Barcode',
-            ),
-          ],
-        ),
       ),
-      body: TabBarView(
-        controller: _tab,
-        children: [
-          _buildReceiptTab(),
-          _buildBarcodeTab(),
-        ],
-      ),
+      body: _buildReceiptTab(),
     );
   }
 
@@ -507,10 +362,10 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                         ),
                       ),
                       const SizedBox(height: 16),
-                      const Text(
+                      Text(
                         'Processing receipt...',
                         style: TextStyle(
-                          color: Color(0xFF7F8C8D),
+                          color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : const Color(0xFF7F8C8D),
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
                         ),
@@ -519,7 +374,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                   ),
                 )
               : _preview.isEmpty
-                  ? _ScanHint(text: 'Pick or snap a clear photo of your receipt.', isDarkMode: _themeService.isDarkMode)
+                  ? const SizedBox.shrink()
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: _preview.length,
@@ -528,11 +383,11 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.06),
+                                color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.06),
                                 blurRadius: 10,
                                 offset: const Offset(0, 2),
                               ),
@@ -542,35 +397,41 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                             contentPadding: const EdgeInsets.all(16),
                             title: Text(
                               it.name,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.w600,
-                                color: Color(0xFF2C3E50),
+                                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : const Color(0xFF2C3E50),
                               ),
                             ),
                             subtitle: Container(
                               margin: const EdgeInsets.only(top: 4),
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFE8F4FD),
+                                color: _themeService.isDarkMode 
+                                    ? const Color(0xFF2C3E50).withOpacity(0.3)
+                                    : const Color(0xFFE8F4FD),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 'Qty: ${it.quantity}',
-                                style: const TextStyle(
-                                  color: Color(0xFF3498DB),
+                                style: TextStyle(
+                                  color: _themeService.isDarkMode 
+                                      ? const Color(0xFF7BB3F0)
+                                      : const Color(0xFF3498DB),
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ),
                             trailing: Container(
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF8F9FA),
+                                color: _themeService.isDarkMode 
+                                    ? ThemeService.darkCardBackground
+                                    : const Color(0xFFF8F9FA),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: IconButton(
-                                icon: const Icon(
+                                icon: Icon(
                                   Icons.edit_rounded,
-                                  color: Color(0xFF4A90E2),
+                                  color: _themeService.isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF4A90E2),
                                 ),
                                 onPressed: () => _editParsedItem(i),
                               ),
@@ -582,17 +443,17 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
         ),
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(
+          decoration: BoxDecoration(
+            color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,
+            borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(20),
               topRight: Radius.circular(20),
             ),
             boxShadow: [
               BoxShadow(
-                color: Color(0x1A000000),
+                color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.3 : 0.1),
                 blurRadius: 10,
-                offset: Offset(0, -2),
+                offset: const Offset(0, -2),
               ),
             ],
           ),
@@ -602,19 +463,19 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
               Row(
                 children: [
                   Expanded(
-                    child: _buildActionButton(
+                    child:                   _buildActionButton(
                       icon: Icons.photo_library_rounded,
                       label: 'Gallery',
-                      color: const Color(0xFF9B59B6),
+                      color: _themeService.isDarkMode ? const Color(0xFFBB6BD9) : const Color(0xFF9B59B6),
                       onPressed: _busy ? null : () => _pickAndProcess(ImageSource.gallery),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _buildActionButton(
+                    child:                     _buildActionButton(
                       icon: Icons.camera_alt_rounded,
                       label: 'Camera',
-                      color: const Color(0xFF3498DB),
+                      color: _themeService.isDarkMode ? const Color(0xFF5DADE2) : const Color(0xFF3498DB),
                       onPressed: _busy ? null : () => _pickAndProcess(ImageSource.camera),
                     ),
                   ),
@@ -625,7 +486,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                         ? null 
                         : Icons.check_circle_rounded,
                       label: _busy ? 'Saving...' : 'Save All',
-                      color: const Color(0xFF27AE60),
+                      color: _themeService.isDarkMode ? const Color(0xFF58D68D) : const Color(0xFF27AE60),
                       onPressed: (_preview.isEmpty || _busy) ? null : _saveAll,
                       isLoading: _busy,
                     ),
@@ -634,10 +495,10 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
               ),
               if (_preview.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _buildActionButton(
+                  _buildActionButton(
                   icon: Icons.clear_all_rounded,
                   label: 'Clear Preview',
-                  color: const Color(0xFFE74C3C),
+                  color: _themeService.isDarkMode ? const Color(0xFFFF6B6B) : const Color(0xFFE74C3C),
                   onPressed: _busy ? null : _clearPreview,
                   isFullWidth: true,
                 ),
@@ -719,143 +580,6 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     return button;
   }
 
-  Widget _buildBarcodeTab() {
-    return Column(
-      children: [
-        Expanded(
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: MobileScanner(
-                controller: _barcodeCtrl,
-                onDetect: (capture) async {
-                  final list = capture.barcodes;
-                  if (list.isEmpty) return;
-                  final code = list.first.rawValue;
-                  if (code == null) return;
-                  await _barcodeCtrl.stop();
-                  await _handleBarcode(code);
-                },
-              ),
-            ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(20),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Color(0x1A000000),
-                blurRadius: 10,
-                offset: Offset(0, -2),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF27AE60).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.qr_code_rounded,
-                      color: Color(0xFF27AE60),
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Point the camera at a barcode',
-                      style: TextStyle(
-                        color: Color(0xFF27AE60),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Supported formats: UPC, EAN, Code128',
-                style: TextStyle(
-                  color: const Color(0xFF7F8C8D),
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+  // Removed _buildBarcodeTab method
 }
 
-class _ScanHint extends StatelessWidget {
-  const _ScanHint({required this.text, this.isDarkMode = false});
-  final String text;
-  final bool isDarkMode;
-  
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFF27AE60).withOpacity(isDarkMode ? 0.2 : 0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Icon(
-                Icons.receipt_long_rounded,
-                size: 64,
-                color: Color(0xFF27AE60),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Ready to scan!',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              text,
-              style: TextStyle(
-                fontSize: 14,
-                color: isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
