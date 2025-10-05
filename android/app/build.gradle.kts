@@ -48,6 +48,8 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             // Disable minification to avoid ML Kit issues
             isMinifyEnabled = false
+            // Explicitly disable resource shrinking
+            isShrinkResources = false
             // proguardFiles(
             //     getDefaultProguardFile("proguard-android-optimize.txt"),
             //     "proguard-rules.pro"
