@@ -6,6 +6,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'screens/auth_gate.dart';
 import 'services/notifications.dart';
 import 'services/theme_service.dart';
+import 'services/config_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,9 @@ Future<void> main() async {
 
   // Initialize theme service
   await ThemeService().init();
+
+  // Initialize configuration service with default API key
+  await ConfigService().initializeWithDefaultKey();
 
   runApp(const FridgeApp());
 }

@@ -1178,7 +1178,7 @@ class _HomePageState extends State<HomePage> {
               return true; // We'll let the LLM handle the filtering based on categories
             }).toList();
 
-      // Generate recipes using local LLM (requesting 2 for faster generation)
+      // Generate recipes using Mistral AI (requesting 2 for faster generation)
       // Pass selected filters to help the LLM focus on those categories
       final recipeData = await LLMService().generateRecipes(
         filteredIngredients, 
@@ -1549,6 +1549,10 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
         
         if (snapshot.hasData) {
           carbonSaved = _calculateCarbonSavings(snapshot.data!.docs);
+          isLoading = false;
+        } else if (snapshot.hasError) {
+          isLoading = false;
+        } else if (snapshot.connectionState == ConnectionState.done) {
           isLoading = false;
         }
         

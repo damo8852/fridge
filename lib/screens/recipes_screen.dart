@@ -547,7 +547,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Try adding more items to your fridge or check your Ollama connection.',
+              'Try adding more items to your fridge or check your Mistral API connection.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.outline,

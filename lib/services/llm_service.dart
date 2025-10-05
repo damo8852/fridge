@@ -1,51 +1,22 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'config_service.dart';
 
 class LLMService {
-  // Configuration for Ollama server
-  // Will automatically try different addresses based on platform
-  static const List<String> _baseUrls = [
-    'http://10.0.2.2:11434',      // Android Emulator
-    'http://localhost:11434',      // iOS Simulator / Web
-    'http://127.0.0.1:11434',      // Alternative localhost
-    'http://10.0.0.214:11434',     // Physical device (update to your computer's IP)
-  ];
-  static const String _model = 'llama3.2:3b'; // Default model
-  static const String _recipeModel = 'llama3.2:3b'; // Use same model for recipes
+  // Mistral API configuration
+  static const String _baseUrl = 'https://api.mistral.ai/v1';
+  static const String _model = 'mistral-tiny'; // Fast and cost-effective model
+  static const String _recipeModel = 'mistral-small'; // Better model for recipe generation
 
-  String? _workingBaseUrl; // Cache the working URL
+  final ConfigService _configService = ConfigService();
 
   static final LLMService _instance = LLMService._internal();
   factory LLMService() => _instance;
   LLMService._internal();
 
-  /// Find the first working Ollama server URL
-  Future<String?> _findWorkingUrl() async {
-    // Return cached URL if we already found one
-    if (_workingBaseUrl != null) {
-      return _workingBaseUrl;
-    }
-
-    // Try each URL
-    for (final url in _baseUrls) {
-      try {
-        final response = await http.get(
-          Uri.parse('$url/api/tags'),
-        ).timeout(const Duration(seconds: 2));
-
-        if (response.statusCode == 200) {
-          _workingBaseUrl = url;
-          print('✓ Connected to Ollama at: $url');
-          return url;
-        }
-      } catch (e) {
-        // Continue to next URL
-        continue;
-      }
-    }
-
-    print('✗ Could not connect to Ollama on any address');
-    return null;
+  /// Get the Mistral API key
+  Future<String?> _getApiKey() async {
+    return await _configService.getMistralApiKey();
   }
 
   /// Predict expiry date in days for a given food item
@@ -53,7 +24,7 @@ class LLMService {
   Future<int?> predictExpiryDays(String itemName, {String? additionalContext}) async {
     try {
       final prompt = _buildPrompt(itemName, additionalContext);
-      final response = await _callOllama(prompt);
+      final response = await _callMistral(prompt, _model);
 
       if (response != null) {
         final days = _parseExpiryDays(response);
@@ -71,7 +42,7 @@ class LLMService {
   Future<Map<String, dynamic>?> predictExpiryAndType(String itemName, {String? additionalContext}) async {
     try {
       final prompt = _buildPromptWithType(itemName, additionalContext);
-      final response = await _callOllama(prompt);
+      final response = await _callMistral(prompt, _model);
 
       if (response != null) {
         final result = _parseExpiryAndType(response);
@@ -126,37 +97,39 @@ Types: meat, poultry, seafood, vegetable, fruit, dairy, grain, beverage, snack, 
 $itemName ->''';
   }
 
-  Future<String?> _callOllama(String prompt) async {
-    final baseUrl = await _findWorkingUrl();
-    if (baseUrl == null) {
-      print('No working Ollama server found');
+  Future<String?> _callMistral(String prompt, String model) async {
+    final apiKey = await _getApiKey();
+    if (apiKey == null) {
+      print('No Mistral API key found');
       return null;
     }
 
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/api/generate'),
+        Uri.parse('$_baseUrl/chat/completions'),
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
         },
         body: json.encode({
-          'model': _model,
-          'prompt': prompt,
-          'stream': false,
-          'options': {
-            'temperature': 0.1, // Low temperature for consistent results
-            'top_p': 0.9,
-            'num_predict': 10, // Limit response length
-          }
+          'model': model,
+          'messages': [
+            {
+              'role': 'user',
+              'content': prompt,
+            }
+          ],
+          'temperature': 0.1, // Low temperature for consistent results
+          'max_tokens': 50, // Limit response length for expiry predictions
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final result = data['response']?.toString().trim();
+        final result = data['choices']?[0]?['message']?['content']?.toString().trim();
         return result;
       } else {
-        print('Ollama API error: ${response.statusCode} - ${response.body}');
+        print('Mistral API error: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('HTTP request error: $e');
@@ -214,34 +187,16 @@ $itemName ->''';
     return null;
   }
 
-  /// Check if Ollama is running and accessible
+  /// Check if Mistral API is available
   Future<bool> isAvailable() async {
-    final baseUrl = await _findWorkingUrl();
-    return baseUrl != null;
+    final apiKey = await _getApiKey();
+    return apiKey != null && apiKey.isNotEmpty;
   }
 
-  /// Get list of available models
+  /// Get list of available Mistral models
   Future<List<String>> getAvailableModels() async {
-    final baseUrl = await _findWorkingUrl();
-    if (baseUrl == null) return [];
-
-    try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/tags'),
-      ).timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final models = data['models'] as List?;
-        if (models != null) {
-          return models.map((model) => model['name'].toString()).toList();
-        }
-      }
-    } catch (e) {
-      print('Error getting models: $e');
-    }
-
-    return [];
+    // Return the models we're configured to use
+    return [_model, _recipeModel];
   }
 
   /// Generate recipe suggestions based on available ingredients
@@ -253,7 +208,7 @@ $itemName ->''';
 
     try {
       final prompt = _buildRecipePrompt(ingredients, count, preferredCategories);
-      final response = await _callOllamaForRecipes(prompt);
+      final response = await _callMistralForRecipes(prompt);
 
       if (response != null) {
         final recipes = _parseRecipes(response);
@@ -317,40 +272,40 @@ Rules:
 Important: Return ONLY the JSON array, no other text.''';
   }
 
-  Future<String?> _callOllamaForRecipes(String prompt) async {
-    final baseUrl = await _findWorkingUrl();
-    if (baseUrl == null) {
-      print('No working Ollama server found');
+  Future<String?> _callMistralForRecipes(String prompt) async {
+    final apiKey = await _getApiKey();
+    if (apiKey == null) {
+      print('No Mistral API key found');
       return null;
     }
 
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/api/generate'),
+        Uri.parse('$_baseUrl/chat/completions'),
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
         },
         body: json.encode({
-          'model': _recipeModel, // Use faster 1B model for recipes
-          'prompt': prompt,
-          'stream': false,
-          'options': {
-            'temperature': 0.2, // Lower for more predictable output
-            'top_p': 0.8,
-            'num_predict': 800, // Increased for complete JSON generation
-            'num_ctx': 2048, // Larger context for better generation
-            'repeat_penalty': 1.2, // Moderate penalty
-          }
+          'model': _recipeModel, // Use mistral-small for better recipe generation
+          'messages': [
+            {
+              'role': 'user',
+              'content': prompt,
+            }
+          ],
+          'temperature': 0.2, // Lower for more predictable output
+          'max_tokens': 1000, // Increased for complete JSON generation
         }),
-      ).timeout(const Duration(seconds: 30)); // Shorter timeout with 1B model
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final result = data['response']?.toString().trim();
+        final result = data['choices']?[0]?['message']?['content']?.toString().trim();
         print('LLM Response received (${result?.length ?? 0} chars)');
         return result;
       } else {
-        print('Ollama API error: ${response.statusCode} - ${response.body}');
+        print('Mistral API error: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('HTTP request error: $e');
