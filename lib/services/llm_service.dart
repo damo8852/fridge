@@ -62,7 +62,7 @@ class LLMService {
 
 Predict days until expiry. Respond with ONLY a number:
 
-Examples:
+For Example:
 milk -> 7
 chicken -> 3
 eggs -> 14
@@ -71,16 +71,31 @@ strawberries -> 4
 yogurt -> 10
 spinach -> 5
 beef -> 2
+rice -> 730
+jasmine rice -> 730
+basmati rice -> 730
+brown rice -> 730
+white rice -> 730
+pasta -> 730
+noodles -> 730
+quinoa -> 365
+oats -> 365
+oatmeal -> 365
+flour -> 365
 salt -> 3650
 pepper -> 1095
 sugar -> 1095
-flour -> 365
 oil -> 365
 vinegar -> 1095
 honey -> 3650
 spices -> 1095
 herbs -> 730
-condiments -> 730
+nuts -> 365
+beans -> 730
+lentils -> 730
+coffee -> 365
+tea -> 730
+cereal -> 365
 
 $itemName ->''';
   }
@@ -101,15 +116,31 @@ strawberries -> {"days": 4, "type": "fruit"}
 yogurt -> {"days": 10, "type": "dairy"}
 spinach -> {"days": 5, "type": "vegetable"}
 beef -> {"days": 2, "type": "meat"}
+rice -> {"days": 730, "type": "grain"}
+jasmine rice -> {"days": 730, "type": "grain"}
+basmati rice -> {"days": 730, "type": "grain"}
+brown rice -> {"days": 730, "type": "grain"}
+white rice -> {"days": 730, "type": "grain"}
+pasta -> {"days": 730, "type": "grain"}
+noodles -> {"days": 730, "type": "grain"}
+quinoa -> {"days": 365, "type": "grain"}
+oats -> {"days": 365, "type": "grain"}
+oatmeal -> {"days": 365, "type": "grain"}
+flour -> {"days": 365, "type": "grain"}
 salt -> {"days": 3650, "type": "condiment"}
 pepper -> {"days": 1095, "type": "condiment"}
 sugar -> {"days": 1095, "type": "condiment"}
-flour -> {"days": 365, "type": "grain"}
 oil -> {"days": 365, "type": "condiment"}
 vinegar -> {"days": 1095, "type": "condiment"}
 honey -> {"days": 3650, "type": "condiment"}
 spices -> {"days": 1095, "type": "condiment"}
 herbs -> {"days": 730, "type": "condiment"}
+nuts -> {"days": 365, "type": "snack"}
+beans -> {"days": 730, "type": "grain"}
+lentils -> {"days": 730, "type": "grain"}
+coffee -> {"days": 365, "type": "beverage"}
+tea -> {"days": 730, "type": "beverage"}
+cereal -> {"days": 365, "type": "grain"}
 
 Types: meat, poultry, seafood, vegetable, fruit, dairy, grain, beverage, snack, condiment, frozen, other
 

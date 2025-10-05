@@ -12,7 +12,11 @@ class ItemTile extends StatelessWidget {
     required this.onUsedHalf,
     required this.onFinish,
     required this.onRemove,
+    this.onSelectMultiple,
     this.isDarkMode = false,
+    this.isSelectionMode = false,
+    this.isSelected = false,
+    this.onSelectionChanged,
   });
 
   final String name;
@@ -23,7 +27,11 @@ class ItemTile extends StatelessWidget {
   final Future<void> Function() onUsedHalf;
   final Future<void> Function() onFinish;
   final Future<void> Function() onRemove;
+  final VoidCallback? onSelectMultiple;
   final bool isDarkMode;
+  final bool isSelectionMode;
+  final bool isSelected;
+  final ValueChanged<bool>? onSelectionChanged;
 
   IconData _getGroceryIcon(GroceryType type) {
     switch (type) {
@@ -104,9 +112,13 @@ class ItemTile extends StatelessWidget {
     final groceryColor = _getGroceryColor(groceryType);
     final groceryIcon = _getGroceryIcon(groceryType);
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
+    return GestureDetector(
+      onLongPress: onSelectMultiple,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            Row(
         children: [
           // Grocery type icon
           Container(
@@ -240,8 +252,24 @@ class ItemTile extends StatelessWidget {
                 if (v == 'half') onUsedHalf();
                 if (v == 'finish') onFinish();
                 if (v == 'remove') onRemove();
+                if (v == 'select_multiple' && onSelectMultiple != null) onSelectMultiple!();
               },
               itemBuilder: (_) => [
+                if (onSelectMultiple != null)
+                  PopupMenuItem(
+                    value: 'select_multiple',
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.checklist_rounded,
+                          size: 18,
+                          color: Color(0xFF27AE60),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Select Multiple'),
+                      ],
+                    ),
+                  ),
                 PopupMenuItem(
                   value: 'edit',
                   child: Row(
@@ -301,7 +329,23 @@ class ItemTile extends StatelessWidget {
               ],
             ),
           ),
-        ],
+            ],
+            ),
+            // Checkbox in top-right corner
+            if (isSelectionMode)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Checkbox(
+                  value: isSelected,
+                  onChanged: (value) => onSelectionChanged?.call(value ?? false),
+                  activeColor: const Color(0xFF27AE60),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

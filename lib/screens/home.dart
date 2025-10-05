@@ -25,6 +25,8 @@ class _HomePageState extends State<HomePage> {
   User get user => _auth.currentUser!;
   Set<GroceryType> _selectedFilters = {};
   late final ThemeService _themeService;
+  bool _isSelectionMode = false;
+  Set<String> _selectedItems = {};
   
   // Sorting options
   String _sortOption = 'expiry_asc';
@@ -52,6 +54,182 @@ class _HomePageState extends State<HomePage> {
   void _toggleDarkMode() {
     _themeService.toggleDarkMode();
   }
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _isSelectionMode = !_isSelectionMode;
+      _selectedItems.clear();
+    });
+  }
+
+  void _toggleItemSelection(String itemId) {
+    setState(() {
+      if (_selectedItems.contains(itemId)) {
+        _selectedItems.remove(itemId);
+      } else {
+        _selectedItems.add(itemId);
+      }
+    });
+  }
+
+  void _deleteSelectedItems() async {
+    if (_selectedItems.isEmpty) return;
+    
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Selected Items'),
+        content: Text('Are you sure you want to delete ${_selectedItems.length} item(s)? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFE74C3C),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    final batch = _db.batch();
+    for (final itemId in _selectedItems) {
+      final docRef = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
+      batch.delete(docRef);
+    }
+    
+    try {
+      await batch.commit();
+      setState(() {
+        _selectedItems.clear();
+        _isSelectionMode = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Deleted ${_selectedItems.length} items')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete items: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _finishSelectedItems() async {
+    if (_selectedItems.isEmpty) return;
+    
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Finish Selected Items'),
+        content: Text('Are you sure you want to mark ${_selectedItems.length} item(s) as finished? These items will be moved to your finished items history.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF27AE60),
+            ),
+            child: const Text('Finish'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    final batch = _db.batch();
+    final user = _auth.currentUser!;
+    
+    for (final itemId in _selectedItems) {
+      final docRef = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
+      
+      // Get the item data first
+      final docSnapshot = await docRef.get();
+      if (docSnapshot.exists) {
+        final data = docSnapshot.data() as Map<String, dynamic>;
+        
+        // Move to finished_items collection
+        final finishedItemsRef = _db
+            .collection('users')
+            .doc(user.uid)
+            .collection('finished_items')
+            .doc();
+        
+        batch.set(finishedItemsRef, {
+          'name': data['name'],
+          'quantity': data['quantity'],
+          'groceryType': data['groceryType'],
+          'finishedAt': FieldValue.serverTimestamp(),
+          'originalExpiryDate': data['expiryDate'],
+        });
+        
+        // Delete from main collection
+        batch.delete(docRef);
+      }
+    }
+    
+    try {
+      await batch.commit();
+      setState(() {
+        _selectedItems.clear();
+        _isSelectionMode = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Finished ${_selectedItems.length} items')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to finish items: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+
+  void _selectAllVisibleItems() {
+    // This will be called from the app bar, but we need access to the current docs
+    // We'll use a different approach - store the current docs in a variable
+    if (_currentSortedDocs != null) {
+      setState(() {
+        if (_selectedItems.length == _currentSortedDocs!.length) {
+          _selectedItems.clear();
+        } else {
+          _selectedItems = _currentSortedDocs!.map((doc) => doc.id).toSet();
+        }
+      });
+    }
+  }
+
+  int _getCurrentItemsCount() {
+    return _currentSortedDocs?.length ?? 0;
+  }
+
+  // Store current sorted docs for select all functionality
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _currentSortedDocs;
 
   String _getSortDisplayName(String sortOption) {
     switch (sortOption) {
@@ -382,6 +560,7 @@ class _HomePageState extends State<HomePage> {
     required IconData icon,
     required String label,
     required Color color,
+    bool isFullWidth = false,
   }) {
     // Create much darker colors for dark mode with subtle glow effects
     Color buttonColor = _themeService.isDarkMode 
@@ -394,7 +573,7 @@ class _HomePageState extends State<HomePage> {
         ? color.withOpacity(0.9)
         : color;
     
-    return Container(
+    Widget button = Container(
       decoration: BoxDecoration(
         color: buttonColor,
         borderRadius: BorderRadius.circular(12),
@@ -415,31 +594,58 @@ class _HomePageState extends State<HomePage> {
           borderRadius: BorderRadius.circular(12),
           onTap: onPressed,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  color: iconColor,
-                  size: 20,
+            padding: isFullWidth 
+              ? const EdgeInsets.symmetric(vertical: 12, horizontal: 16)
+              : const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+            child: isFullWidth 
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      icon,
+                      color: iconColor,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      icon,
+                      color: iconColor,
+                      size: 20,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
           ),
         ),
       ),
     );
+
+    if (isFullWidth) {
+      return SizedBox(width: double.infinity, child: button);
+    }
+    return button;
   }
 
   IconData _getGroceryIcon(GroceryType type) {
@@ -507,21 +713,77 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
       appBar: AppBar(
-        title: Row(
-          children: [
-          const SizedBox(width: 12),
-            Text(
-              'My Fridge',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-              ),
+        title: _isSelectionMode 
+          ? Row(
+              children: [
+                Text(
+                  '${_selectedItems.length} selected',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                const SizedBox(width: 12),
+                Text(
+                  'My Fridge',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
         backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
         elevation: 0,
-        actions: [
+        actions: _isSelectionMode ? [
+          IconButton(
+            icon: Icon(
+              Icons.select_all_rounded, 
+              size: 18,
+              color: _themeService.isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF4A90E2),
+            ),
+            onPressed: () {
+              // We'll need to pass the current docs to select all
+              // For now, we'll select all visible items
+              _selectAllVisibleItems();
+            },
+            tooltip: _selectedItems.length == _getCurrentItemsCount() ? 'Deselect All' : 'Select All',
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(6),
+              minimumSize: const Size(28, 28),
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.check_circle_rounded, 
+              size: 18,
+              color: _themeService.isDarkMode ? const Color(0xFF81C784) : const Color(0xFF27AE60),
+            ),
+            onPressed: _selectedItems.isEmpty ? null : _finishSelectedItems,
+            tooltip: 'Finish Selected',
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(6),
+              minimumSize: const Size(28, 28),
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.delete_rounded, 
+              size: 18,
+              color: _themeService.isDarkMode ? const Color(0xFFE57373) : const Color(0xFFE74C3C),
+            ),
+            onPressed: _selectedItems.isEmpty ? null : _deleteSelectedItems,
+            tooltip: 'Delete Selected',
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(6),
+              minimumSize: const Size(28, 28),
+            ),
+          ),
+        ] : [
           IconButton(
             tooltip: _themeService.isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
             onPressed: _toggleDarkMode,
@@ -548,8 +810,21 @@ class _HomePageState extends State<HomePage> {
               minimumSize: const Size(32, 32),
             ),
           ),
-          const SizedBox(width: 8),
         ],
+        leading: _isSelectionMode 
+          ? IconButton(
+              icon: Icon(
+                Icons.close_rounded,
+                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+              ),
+              onPressed: _toggleSelectionMode,
+              tooltip: 'Cancel Selection',
+              style: IconButton.styleFrom(
+                padding: const EdgeInsets.all(8),
+                minimumSize: const Size(32, 32),
+              ),
+            )
+          : null,
       ),
       floatingActionButton: Container(
         decoration: BoxDecoration(
@@ -568,9 +843,10 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         child: FloatingActionButton.extended(
-        onPressed: _addItemDialog,
+          onPressed: _addItemDialog,
           backgroundColor: Colors.transparent,
           elevation: 0,
+          heroTag: "add_fab",
           icon: const Icon(
             Icons.add_rounded,
             color: Colors.white,
@@ -776,6 +1052,9 @@ class _HomePageState extends State<HomePage> {
                 // Sort the filtered items
                 final sortedDocs = _sortItems(filteredDocs);
                 
+                // Store current sorted docs for select all functionality
+                _currentSortedDocs = sortedDocs;
+                
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -784,10 +1063,16 @@ class _HomePageState extends State<HomePage> {
                     final ref = sortedDocs[i].reference;
                     final data = sortedDocs[i].data();
                     final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
+                    final itemId = sortedDocs[i].id;
+                    final isSelected = _selectedItems.contains(itemId);
+                    
                     return Container(
                       decoration: BoxDecoration(
                         color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
                         borderRadius: BorderRadius.circular(16),
+                        border: _isSelectionMode && isSelected 
+                          ? Border.all(color: const Color(0xFF27AE60), width: 2)
+                          : null,
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.06),
@@ -796,50 +1081,88 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ],
                       ),
-                      child: ItemTile(
-                        name: (data['name'] ?? 'Unknown').toString(),
-                        expiry: (data['expiryDate'] as Timestamp?)?.toDate(),
-                        quantity: (data['quantity'] ?? 1),
-                        groceryType: groceryType,
-                        isDarkMode: _themeService.isDarkMode,
-                        onEdit: () => _editItemDialog(ref, data),
-                        onUsedHalf: () async {
-                          final q = data['quantity'];
-                          final newQ = (q is num) ? (q / 2) : 1;
-                          await ref.update({
-                            'quantity': newQ,
-                            'updatedAt': FieldValue.serverTimestamp(),
-                          });
-                        },
-                        onFinish: () async {
-                          // Move item to finished_items collection before deleting
-                          final docSnapshot = await ref.get();
-                          if (docSnapshot.exists) {
-                            final data = docSnapshot.data() as Map<String, dynamic>;
-                            final user = _auth.currentUser!;
-                            final finishedItemsRef = _db
-                                .collection('users')
-                                .doc(user.uid)
-                                .collection('finished_items')
-                                .doc();
-                            
-                            await finishedItemsRef.set({
-                              'name': data['name'],
-                              'quantity': data['quantity'],
-                              'groceryType': data['groceryType'],
-                              'finishedAt': FieldValue.serverTimestamp(),
-                              'originalExpiryDate': data['expiryDate'],
-                            });
-                          }
-                          
-                          // Now delete from main collection
-                          await ref.delete();
-                        },
-                        onRemove: () async {
-                          // Simply delete the item without moving to finished_items
-                          await ref.delete();
-                        },
-                      ),
+                      child: _isSelectionMode 
+                        ? ListTile(
+                            leading: Checkbox(
+                              value: isSelected,
+                              onChanged: (_) => _toggleItemSelection(itemId),
+                              activeColor: const Color(0xFF27AE60),
+                            ),
+                            title: Text(
+                              (data['name'] ?? 'Unknown').toString(),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : const Color(0xFF2C3E50),
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Qty: ${data['quantity'] ?? 1} • ${groceryType.displayName}',
+                              style: TextStyle(
+                                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : const Color(0xFF7F8C8D),
+                              ),
+                            ),
+                            onTap: () => _toggleItemSelection(itemId),
+                          )
+                        : ItemTile(
+                            name: (data['name'] ?? 'Unknown').toString(),
+                            expiry: (data['expiryDate'] as Timestamp?)?.toDate(),
+                            quantity: (data['quantity'] ?? 1),
+                            groceryType: groceryType,
+                            isDarkMode: _themeService.isDarkMode,
+                            isSelectionMode: _isSelectionMode,
+                            isSelected: _selectedItems.contains(itemId),
+                            onEdit: () => _editItemDialog(ref, data),
+                            onUsedHalf: () async {
+                              final q = data['quantity'];
+                              final newQ = (q is num) ? (q / 2) : 1;
+                              await ref.update({
+                                'quantity': newQ,
+                                'updatedAt': FieldValue.serverTimestamp(),
+                              });
+                            },
+                            onFinish: () async {
+                              // Move item to finished_items collection before deleting
+                              final docSnapshot = await ref.get();
+                              if (docSnapshot.exists) {
+                                final data = docSnapshot.data() as Map<String, dynamic>;
+                                final user = _auth.currentUser!;
+                                final finishedItemsRef = _db
+                                    .collection('users')
+                                    .doc(user.uid)
+                                    .collection('finished_items')
+                                    .doc();
+                                
+                                await finishedItemsRef.set({
+                                  'name': data['name'],
+                                  'quantity': data['quantity'],
+                                  'groceryType': data['groceryType'],
+                                  'finishedAt': FieldValue.serverTimestamp(),
+                                  'originalExpiryDate': data['expiryDate'],
+                                });
+                              }
+                              
+                              // Now delete from main collection
+                              await ref.delete();
+                            },
+                            onRemove: () async {
+                              // Simply delete the item without moving to finished_items
+                              await ref.delete();
+                            },
+                            onSelectMultiple: () {
+                              if (!_isSelectionMode) {
+                                _toggleSelectionMode();
+                                _toggleItemSelection(itemId);
+                              }
+                            },
+                            onSelectionChanged: (selected) {
+                              if (selected) {
+                                _selectedItems.add(itemId);
+                              } else {
+                                _selectedItems.remove(itemId);
+                              }
+                              setState(() {});
+                            },
+                          ),
                     );
                   },
                 );
@@ -1182,7 +1505,7 @@ class _HomePageState extends State<HomePage> {
       // Pass selected filters to help the LLM focus on those categories
       final recipeData = await LLMService().generateRecipes(
         filteredIngredients, 
-        count: 2,
+        count: 3,
         preferredCategories: _selectedFilters.isNotEmpty 
             ? _selectedFilters.map((type) => type.displayName).toList()
             : null,

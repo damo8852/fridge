@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 // Removed mobile_scanner import
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../services/parser.dart';
 // Removed notifications import (was only used for barcode functionality)
@@ -30,6 +31,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   bool _busy = false;
   String? _err;
   late final ThemeService _themeService;
+  bool _isSelectionMode = false;
+  Set<int> _selectedItems = {};
 
   ExpiryRules? _rules;
   UpcMap? _upc;
@@ -71,6 +74,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       setState(() {
         _preview = [];
         _err = null;
+        _isSelectionMode = false;
+        _selectedItems.clear();
       });
     }
   }
@@ -82,7 +87,39 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       _err = null;
       _preview = [];
     });
+    
     try {
+      // Request appropriate permissions based on source
+      if (source == ImageSource.camera) {
+        final cameraStatus = await Permission.camera.request();
+        if (!cameraStatus.isGranted) {
+          setState(() {
+            _err = 'Camera permission is required to take photos';
+            _busy = false;
+          });
+          return;
+        }
+      } else if (source == ImageSource.gallery) {
+        // For Android 13+ (API 33+), we need READ_MEDIA_IMAGES permission
+        // For older versions, we need READ_EXTERNAL_STORAGE permission
+        Permission permission;
+        if (Platform.isAndroid) {
+          // Check Android version and request appropriate permission
+          permission = Permission.photos; // This handles both cases automatically
+        } else {
+          permission = Permission.photos;
+        }
+        
+        final galleryStatus = await permission.request();
+        if (!galleryStatus.isGranted) {
+          setState(() {
+            _err = 'Storage permission is required to access photos';
+            _busy = false;
+          });
+          return;
+        }
+      }
+      
       final picker = ImagePicker();
       final x = await picker.pickImage(source: source, imageQuality: 85);
       if (x == null) {
@@ -244,33 +281,184 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     );
   }
 
+  void _deleteParsedItem(int index) {
+    showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('Delete Item'),
+          content: Text('Are you sure you want to delete "${_preview[index].name}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                setState(() {
+                  _preview.removeAt(index);
+                });
+                Navigator.pop(context);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE74C3C),
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _isSelectionMode = !_isSelectionMode;
+      _selectedItems.clear();
+    });
+  }
+
+  void _toggleItemSelection(int index) {
+    setState(() {
+      if (_selectedItems.contains(index)) {
+        _selectedItems.remove(index);
+      } else {
+        _selectedItems.add(index);
+      }
+    });
+  }
+
+  void _deleteSelectedItems() {
+    if (_selectedItems.isEmpty) return;
+    
+    final selectedNames = _selectedItems.map((i) => _preview[i].name).join(', ');
+    showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('Delete Selected Items'),
+          content: Text('Are you sure you want to delete ${_selectedItems.length} item(s):\n$selectedNames?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                setState(() {
+                  // Sort indices in descending order to avoid index shifting issues
+                  final sortedIndices = _selectedItems.toList()..sort((a, b) => b.compareTo(a));
+                  for (final index in sortedIndices) {
+                    _preview.removeAt(index);
+                  }
+                  _selectedItems.clear();
+                  _isSelectionMode = false;
+                });
+                Navigator.pop(context);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE74C3C),
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _selectAllItems() {
+    setState(() {
+      _selectedItems = {for (int i = 0; i < _preview.length; i++) i};
+    });
+  }
+
+  void _deselectAllItems() {
+    setState(() {
+      _selectedItems.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
       appBar: AppBar(
-        title: Row(
-          children: [
-            const Icon(
-              Icons.qr_code_scanner_rounded,
-              color: Color(0xFF27AE60),
-              size: 24,
+        title: _isSelectionMode 
+          ? Row(
+              children: [
+                Text(
+                  '${_selectedItems.length} selected',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                const Icon(
+                  Icons.qr_code_scanner_rounded,
+                  color: Color(0xFF27AE60),
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Smart Scanner',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Text(
-              'Smart Scanner',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-              ),
-            ),
-          ],
-        ),
         backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
         elevation: 0,
         iconTheme: IconThemeData(
           color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
         ),
+        actions: _isSelectionMode ? [
+          IconButton(
+            icon: const Icon(Icons.select_all_rounded, size: 18),
+            onPressed: _selectedItems.length == _preview.length ? _deselectAllItems : _selectAllItems,
+            tooltip: _selectedItems.length == _preview.length ? 'Deselect All' : 'Select All',
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(6),
+              minimumSize: const Size(28, 28),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_rounded, size: 18),
+            onPressed: _selectedItems.isEmpty ? null : _deleteSelectedItems,
+            tooltip: 'Delete Selected',
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(6),
+              minimumSize: const Size(28, 28),
+            ),
+          ),
+        ] : _preview.isNotEmpty ? [
+          IconButton(
+            icon: const Icon(Icons.checklist_rounded, size: 18),
+            onPressed: _toggleSelectionMode,
+            tooltip: 'Select Items',
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(6),
+              minimumSize: const Size(28, 28),
+            ),
+          ),
+        ] : null,
+        leading: _isSelectionMode 
+          ? IconButton(
+              icon: const Icon(Icons.close_rounded, size: 18),
+              onPressed: _toggleSelectionMode,
+              tooltip: 'Cancel Selection',
+              style: IconButton.styleFrom(
+                padding: const EdgeInsets.all(6),
+                minimumSize: const Size(28, 28),
+              ),
+            )
+          : null,
       ),
       body: _buildReceiptTab(),
     );
@@ -545,11 +733,16 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       itemCount: _preview.length,
       itemBuilder: (_, i) {
         final it = _preview[i];
+        final isSelected = _selectedItems.contains(i);
+        
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
             color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,
             borderRadius: BorderRadius.circular(16),
+            border: _isSelectionMode && isSelected 
+              ? Border.all(color: const Color(0xFF27AE60), width: 2)
+              : null,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.06),
@@ -560,6 +753,13 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
           ),
           child: ListTile(
             contentPadding: const EdgeInsets.all(16),
+            leading: _isSelectionMode 
+              ? Checkbox(
+                  value: isSelected,
+                  onChanged: (_) => _toggleItemSelection(i),
+                  activeColor: const Color(0xFF27AE60),
+                )
+              : null,
             title: Text(
               it.name,
               style: TextStyle(
@@ -590,21 +790,45 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
-            trailing: Container(
-              decoration: BoxDecoration(
-                color: _themeService.isDarkMode 
-                    ? ThemeService.darkCardBackground
-                    : const Color(0xFFF8F9FA),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: IconButton(
-                icon: Icon(
-                  Icons.edit_rounded,
-                  color: _themeService.isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF4A90E2),
+            trailing: _isSelectionMode 
+              ? null
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkCardBackground
+                            : const Color(0xFFF8F9FA),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.edit_rounded,
+                          color: _themeService.isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF4A90E2),
+                        ),
+                        onPressed: () => _editParsedItem(i),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkCardBackground
+                            : const Color(0xFFF8F9FA),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: IconButton(
+                        icon: Icon(
+                          Icons.delete_rounded,
+                          color: _themeService.isDarkMode ? const Color(0xFFE57373) : const Color(0xFFE74C3C),
+                        ),
+                        onPressed: () => _deleteParsedItem(i),
+                      ),
+                    ),
+                  ],
                 ),
-                onPressed: () => _editParsedItem(i),
-              ),
-            ),
+            onTap: _isSelectionMode ? () => _toggleItemSelection(i) : null,
           ),
         );
       },

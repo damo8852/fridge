@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import '../models/grocery_type.dart';
+import 'config_service.dart';
 
 class ExpiryRules {
   final List<ExpiryRule> rules;
@@ -53,15 +54,6 @@ class ExpiryRule {
 
 /// Enhanced receipt line parser for modern receipt formats
 class ReceiptParser {
-  // prices like 3.89 or $8.99
-  static final _price = RegExp(r'(?<!\d)(?:\$)?\d{1,3}(?:[.,]\d{2})(?!\d)');
-  // quantity: "2x Milk" / "2 Milk"  OR suffix "Milk x2"
-  static final _qtyPrefix = RegExp(r'^\s*(\d+)\s*x?\s+');
-  static final _qtySuffix = RegExp(r'\s+x\s*(\d+)\s*$');
-  // weight tokens we strip
-  static final _weight = RegExp(r'\b\d+(?:\.\d+)?\s?(?:lb|lbs|oz|kg|g)\b', caseSensitive: false);
-  // UPC codes (12-13 digits)
-  static final _upc = RegExp(r'\b\d{12,13}\b');
   // obvious non-item lines
   static final _noise = RegExp(
     r'\b(?:subtotal|total|tax|purchase|change|cash|visa|debit|credit|auth|exp(?:iration| date)?|cashier|lane|sequence|seq|eps|term|ref|date|time|pm|am|#\d+|receipt|store|thank|you|welcome|save|savings|discount|coupon|sale|clearance|manager|special|price|each|per|lb|oz|ct|pk|ea|pkg|misc|dept|tpr|promo)\b',
@@ -90,20 +82,22 @@ class ReceiptParser {
       final prompt = _buildExtractionPrompt(receiptText);
       print('LLM Prompt: "$prompt"');
       
-      final response = await _callOllama(prompt);
-      if (response != null) {
+      final response = await _callMistral(prompt);
+      if (response != null && response.trim().isNotEmpty) {
         print('LLM Response: "$response"');
         final items = _parseLLMResponse(response);
-        print('Extracted items: ${items.map((i) => '${i.name} (${i.quantity})').join(', ')}');
-        return items;
+        if (items.isNotEmpty) {
+          print('Extracted items: ${items.map((i) => '${i.name} (${i.quantity})').join(', ')}');
+          return items;
+        }
       }
     } catch (e) {
       print('LLM parsing failed: $e');
     }
     
-    // Fallback to regex parsing
-    print('Falling back to regex parsing');
-    return _parseWithRegex(receiptText);
+    // Fallback to improved regex parsing
+    print('Falling back to improved regex parsing');
+    return _parseWithImprovedRegex(receiptText);
   }
 
   static String _buildExtractionPrompt(String receiptText) {
@@ -135,30 +129,41 @@ Examples:
 JSON array:''';
   }
 
-  static Future<String?> _callOllama(String prompt) async {
+  static Future<String?> _callMistral(String prompt) async {
     try {
+      // Import ConfigService to get API key
+      final configService = ConfigService();
+      final apiKey = await configService.getMistralApiKey();
+      
+      if (apiKey == null) {
+        print('No Mistral API key found for receipt parsing');
+        return null;
+      }
+
       final response = await http.post(
-        Uri.parse('http://10.0.0.218:11434/api/generate'),
+        Uri.parse('https://api.mistral.ai/v1/chat/completions'),
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': 'Bearer $apiKey',
         },
         body: json.encode({
-          'model': 'llama3.2:3b',
-          'prompt': prompt,
-          'stream': false,
-          'options': {
-            'temperature': 0.1,
-            'top_p': 0.9,
-            'num_predict': 500,
-          }
+          'model': 'mistral-tiny', // Fast and cost-effective for parsing
+          'messages': [
+            {
+              'role': 'user',
+              'content': prompt,
+            }
+          ],
+          'temperature': 0.1, // Low temperature for consistent parsing
+          'max_tokens': 1000, // Enough for receipt items
         }),
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return data['response']?.toString().trim();
+        return data['choices']?[0]?['message']?['content']?.toString().trim();
       } else {
-        print('Ollama API error: ${response.statusCode} - ${response.body}');
+        print('Mistral API error: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('HTTP request error: $e');
@@ -209,8 +214,7 @@ JSON array:''';
     return [];
   }
 
-  static List<ParsedItem> _parseWithRegex(String fullText) {
-    // Fallback to the original regex parsing logic
+  static List<ParsedItem> _parseWithImprovedRegex(String fullText) {
     final rawLines = fullText
         .split('\n')
         .map((l) => l.trim())
@@ -219,7 +223,6 @@ JSON array:''';
 
     final items = <ParsedItem>[];
     var stopAtTotals = false;
-    var inItemSection = false;
 
     for (var line in rawLines) {
       final low = line.toLowerCase();
@@ -236,28 +239,14 @@ JSON array:''';
       }
       if (stopAtTotals) continue;
 
-      // Skip obvious noise lines
-      if (_noise.hasMatch(low)) continue;
+      // Skip obvious noise lines (but be less aggressive)
+      if (_noise.hasMatch(low) && !_looksLikeItemName(line)) continue;
       if (_dateLike.hasMatch(low)) continue;
-      if (_longDigits.hasMatch(low)) continue;
-
-      // Check if this looks like an item line
-      final hasPrice = _price.hasMatch(line);
-      final hasQtyPrefix = _qtyPrefix.hasMatch(line);
-      final hasQtySuffix = _qtySuffix.hasMatch(line);
-      final hasUPC = _upc.hasMatch(line);
-
-      // If we have a price or quantity, we're in the item section
-      if (hasPrice || hasQtyPrefix || hasQtySuffix || hasUPC) {
-        inItemSection = true;
-      }
-
-      // Skip lines that don't look like items
-      if (!inItemSection) continue;
+      if (_longDigits.hasMatch(low) && !_looksLikeItemName(line)) continue;
 
       // Process the line as a potential item
       print('Processing line: "$line"');
-      var processedLine = _processItemLine(line);
+      var processedLine = _processItemLineImproved(line);
       if (processedLine != null) {
         print('  -> Parsed: "${processedLine.name}" (qty: ${processedLine.quantity})');
         items.add(processedLine);
@@ -284,47 +273,74 @@ JSON array:''';
     return merged.values.toList();
   }
 
-  static ParsedItem? _processItemLine(String line) {
-    // Extract quantity first
-    int qty = 1;
+
+  static ParsedItem? _processItemLineImproved(String line) {
+    // More aggressive parsing for common receipt patterns
     var name = line;
+    int qty = 1;
     
-    final mPrefix = _qtyPrefix.firstMatch(name);
-    if (mPrefix != null) {
-      qty = int.tryParse(mPrefix.group(1) ?? '1') ?? 1;
-      name = name.replaceFirst(mPrefix.group(0)!, '').trim();
-    } else {
-      final mSuffix = _qtySuffix.firstMatch(name);
-      if (mSuffix != null) {
-        qty = int.tryParse(mSuffix.group(1) ?? '1') ?? 1;
-        name = name.replaceFirst(mSuffix.group(0)!, '').trim();
+    // Look for quantity patterns more broadly
+    final qtyPatterns = [
+      RegExp(r'^(\d+)\s*x\s*', caseSensitive: false), // "2x Item"
+      RegExp(r'^(\d+)\s+', caseSensitive: false), // "2 Item"
+      RegExp(r'\s+x\s*(\d+)\s*$', caseSensitive: false), // "Item x2"
+      RegExp(r'\s+(\d+)\s*x\s*\$', caseSensitive: false), // "Item 2x$5.99"
+      RegExp(r'^(\d+\.\d+)\s+', caseSensitive: false), // "2.19 lbs"
+    ];
+    
+    for (final pattern in qtyPatterns) {
+      final match = pattern.firstMatch(name);
+      if (match != null) {
+        final qtyStr = match.group(1) ?? '1';
+        qty = double.tryParse(qtyStr)?.round() ?? 1;
+        name = name.replaceFirst(match.group(0)!, '').trim();
+        break;
       }
     }
-
-    // Clean up the name by removing various patterns
-    name = _cleanItemName(name);
     
-    // Validate the name
-    if (!_isValidItemName(name)) return null;
+    // Clean up the name by removing various patterns
+    name = _cleanItemNameImproved(name);
+    
+    // Validate the name - be more lenient if it looks like a food item
+    if (!_isValidItemName(name)) {
+      // If it looks like a food item but failed validation, try to salvage it
+      if (_looksLikeItemName(line)) {
+        // Try to extract just the food part
+        final foodMatch = RegExp(r'\b([A-Za-z\s]+(?:chicken|beef|cream|broth|grapes|tomatoes|tofu|sandwiches|thighs|ground|whipping|frozen|dairy|dessert|cherry|crushed|organic|soft|silken|watermelon|sour|patch|kids)[A-Za-z\s]*)\b', caseSensitive: false).firstMatch(line);
+        if (foodMatch != null) {
+          name = foodMatch.group(1)!.trim();
+        }
+      }
+      
+      // Final validation
+      if (!_isValidItemName(name)) return null;
+    }
 
     return ParsedItem(name: _titleCase(name), quantity: qty);
   }
 
-  static String _cleanItemName(String name) {
-    // Remove prices
-    name = name.replaceAll(_price, '');
+
+  static String _cleanItemNameImproved(String name) {
+    // Remove prices (more comprehensive)
+    name = name.replaceAll(RegExp(r'(?<!\d)(?:\$)?\d{1,3}(?:[.,]\d{2})(?!\d)'), '');
     
-    // Remove weights
-    name = name.replaceAll(_weight, '');
+    // Remove weights and measurements
+    name = name.replaceAll(RegExp(r'\b\d+(?:\.\d+)?\s?(?:lb|lbs|oz|kg|g|pt|qt|gal|ml|l)\b', caseSensitive: false), '');
     
     // Remove UPC codes
-    name = name.replaceAll(_upc, '');
+    name = name.replaceAll(RegExp(r'\b\d{12,13}\b'), '');
     
-    // Remove product codes
+    // Remove product codes and long digit sequences
     name = name.replaceAll(RegExp(r'#?\b\d{4,}\b'), '');
     
+    // Remove brand names and store names (common patterns)
+    name = name.replaceAll(RegExp(r'\b(?:Kroger|Heritage Farm|Private Selection|Red Gold|Simple Truth Organic|SOUR PATCH KIDS)\s*[®™]?\s*', caseSensitive: false), '');
+    
     // Remove common store abbreviations and noise words
-    name = name.replaceAll(RegExp(r'\b(pkg|ea|misc|dept|tpr|promo|ct|pk|lb|oz|each|per|price|sale|discount|coupon|clearance|manager|special)\b', caseSensitive: false), '');
+    name = name.replaceAll(RegExp(r'\b(pkg|ea|misc|dept|tpr|promo|ct|pk|lb|oz|each|per|price|sale|discount|coupon|clearance|manager|special|item|coupo|approx|apprax)\b', caseSensitive: false), '');
+    
+    // Remove "UPC:" prefix
+    name = name.replaceAll(RegExp(r'UPC:\s*', caseSensitive: false), '');
     
     // Remove extra whitespace
     name = name.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
@@ -333,6 +349,22 @@ JSON array:''';
     name = name.replaceAll(RegExp(r'^[^\w\s]+|[^\w\s]+$'), '');
     
     return name.trim();
+  }
+
+
+  static bool _looksLikeItemName(String line) {
+    final low = line.toLowerCase();
+    
+    // Check for common food/grocery keywords
+    final foodKeywords = RegExp(r'\b(chicken|beef|cream|broth|grapes|tomatoes|tofu|sandwiches|thighs|ground|whipping|frozen|dairy|dessert|cherry|crushed|organic|soft|silken|watermelon|sour|patch|kids)\b', caseSensitive: false);
+    
+    // Check for brand names that indicate food items
+    final brandKeywords = RegExp(r'\b(heritage|farm|kroger|private|selection|red|gold|simple|truth|organic)\b', caseSensitive: false);
+    
+    // Check for food-related measurements
+    final foodMeasurements = RegExp(r'\b(lb|lbs|oz|pt|qt|gal|ct|pint|pound|ounce|count)\b', caseSensitive: false);
+    
+    return foodKeywords.hasMatch(low) || brandKeywords.hasMatch(low) || foodMeasurements.hasMatch(low);
   }
 
   static bool _isValidItemName(String name) {
@@ -344,10 +376,10 @@ JSON array:''';
     
     // Must not be mostly numbers or symbols
     final alphaRatio = alphaCount / name.length;
-    if (alphaRatio < 0.3) return false;
+    if (alphaRatio < 0.2) return false; // More lenient
     
     // Must not be too short or too long
-    if (name.length < 3 || name.length > 100) return false;
+    if (name.length < 2 || name.length > 100) return false; // More lenient
     
     return true;
   }
