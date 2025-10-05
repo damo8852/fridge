@@ -46,8 +46,8 @@ android {
             // TODO: set up your own signing config for release builds.
             // Using debug signing for convenience so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
-            // You can also enable shrinking if you’d like:
-            // isMinifyEnabled = true
+            // Disable minification to avoid ML Kit issues
+            isMinifyEnabled = false
             // proguardFiles(
             //     getDefaultProguardFile("proguard-android-optimize.txt"),
             //     "proguard-rules.pro"
