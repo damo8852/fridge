@@ -11,6 +11,7 @@ class ItemTile extends StatelessWidget {
     required this.onEdit,
     required this.onUsedHalf,
     required this.onFinish,
+    this.isDarkMode = false,
   });
 
   final String name;
@@ -20,6 +21,65 @@ class ItemTile extends StatelessWidget {
   final VoidCallback onEdit;
   final Future<void> Function() onUsedHalf;
   final Future<void> Function() onFinish;
+  final bool isDarkMode;
+
+  IconData _getGroceryIcon(GroceryType type) {
+    switch (type) {
+      case GroceryType.meat:
+        return Icons.emoji_food_beverage_rounded;
+      case GroceryType.poultry:
+        return Icons.egg_rounded;
+      case GroceryType.seafood:
+        return Icons.set_meal_rounded;
+      case GroceryType.vegetable:
+        return Icons.eco_rounded;
+      case GroceryType.fruit:
+        return Icons.apple_rounded;
+      case GroceryType.dairy:
+        return Icons.local_drink_rounded;
+      case GroceryType.grain:
+        return Icons.grain_rounded;
+      case GroceryType.beverage:
+        return Icons.local_cafe_rounded;
+      case GroceryType.snack:
+        return Icons.cookie_rounded;
+      case GroceryType.condiment:
+        return Icons.local_fire_department_rounded;
+      case GroceryType.frozen:
+        return Icons.ac_unit_rounded;
+      case GroceryType.other:
+        return Icons.inventory_rounded;
+    }
+  }
+
+  Color _getGroceryColor(GroceryType type) {
+    switch (type) {
+      case GroceryType.meat:
+        return const Color(0xFFE74C3C);
+      case GroceryType.poultry:
+        return const Color(0xFFF39C12);
+      case GroceryType.seafood:
+        return const Color(0xFF3498DB);
+      case GroceryType.vegetable:
+        return const Color(0xFF27AE60);
+      case GroceryType.fruit:
+        return const Color(0xFFE91E63);
+      case GroceryType.dairy:
+        return const Color(0xFF9B59B6);
+      case GroceryType.grain:
+        return const Color(0xFF8E44AD);
+      case GroceryType.beverage:
+        return const Color(0xFF1ABC9C);
+      case GroceryType.snack:
+        return const Color(0xFFF1C40F);
+      case GroceryType.condiment:
+        return const Color(0xFFFF5722);
+      case GroceryType.frozen:
+        return const Color(0xFF00BCD4);
+      case GroceryType.other:
+        return const Color(0xFF95A5A6);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,27 +90,196 @@ class ItemTile extends StatelessWidget {
       daysLeft = DateTime(expiry!.year, expiry!.month, expiry!.day)
           .difference(DateTime(today.year, today.month, today.day)).inDays;
     }
+    
     final chip = daysLeft == null
         ? 'no date'
         : (daysLeft <= 0 ? 'today' : daysLeft == 1 ? 'in 1 day' : 'in $daysLeft days');
+    
     final chipColor = daysLeft == null
-        ? Colors.grey
-        : (daysLeft <= 1 ? Colors.redAccent : daysLeft <= 3 ? Colors.orange : Colors.green);
+        ? const Color(0xFF95A5A6)
+        : (daysLeft <= 1 ? const Color(0xFFE74C3C) : daysLeft <= 3 ? const Color(0xFFF39C12) : const Color(0xFF27AE60));
 
-    return ListTile(
-      title: Text(name),
-      subtitle: Text('${groceryType.displayName} • Qty: $quantity • Expires: $dateStr • $chip',
-          style: TextStyle(color: chipColor)),
-      trailing: PopupMenuButton<String>(
-        onSelected: (v) {
-          if (v == 'edit') onEdit();
-          if (v == 'half') onUsedHalf();
-          if (v == 'finish') onFinish();
-        },
-        itemBuilder: (_) => const [
-          PopupMenuItem(value: 'edit', child: Text('Edit')),
-          PopupMenuItem(value: 'half', child: Text('Used ½')),
-          PopupMenuItem(value: 'finish', child: Text('Finished')),
+    final groceryColor = _getGroceryColor(groceryType);
+    final groceryIcon = _getGroceryIcon(groceryType);
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          // Grocery type icon
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: groceryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              groceryIcon,
+              color: groceryColor,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Item details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: groceryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        groceryType.displayName,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: groceryColor,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F4FD),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.inventory_2_rounded,
+                            size: 12,
+                            color: Color(0xFF3498DB),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Qty: $quantity',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF3498DB),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_today_rounded,
+                      size: 14,
+                      color: chipColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Expires: $dateStr',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: chipColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        chip,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: chipColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Action menu
+          Container(
+            decoration: BoxDecoration(
+              color: isDarkMode ? const Color(0xFF3C3C3C) : const Color(0xFFF8F9FA),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: PopupMenuButton<String>(
+              icon: const Icon(
+                Icons.more_vert_rounded,
+                color: Color(0xFF7F8C8D),
+              ),
+              onSelected: (v) {
+                if (v == 'edit') onEdit();
+                if (v == 'half') onUsedHalf();
+                if (v == 'finish') onFinish();
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'edit',
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.edit_rounded,
+                        size: 18,
+                        color: Color(0xFF4A90E2),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Edit'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'half',
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.remove_circle_outline,
+                        size: 18,
+                        color: Color(0xFFF39C12),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Used ½'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'finish',
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle_rounded,
+                        size: 18,
+                        color: Color(0xFF27AE60),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Finished'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

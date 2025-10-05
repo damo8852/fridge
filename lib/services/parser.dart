@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
+import '../models/grocery_type.dart';
 
 class ExpiryRules {
   final List<ExpiryRule> rules;
@@ -106,21 +107,30 @@ class ReceiptParser {
   }
 
   static String _buildExtractionPrompt(String receiptText) {
-    return '''Extract food and grocery items from this receipt text. Return ONLY a JSON array of items.
+    return '''Extract ALL food and grocery items from this receipt text. Return ONLY a JSON array of items.
 
 Receipt text:
 $receiptText
 
 Rules:
-- Only extract food/grocery items (not household items, electronics, etc.)
-- Include quantity if mentioned
+- Extract EVERY food/grocery item you can find
+- Include quantity if mentioned (default to 1 if not specified)
 - Clean up names (remove brand names, sizes, but keep main food item)
-- Return JSON array format: [{"name": "item name", "quantity": number}]
+- Categorize each item by grocery type
+- Return JSON array format: [{"name": "item name", "quantity": number, "type": "grocery_type"}]
+- Look for items even if the text is messy or has OCR errors
+
+Available types: meat, poultry, seafood, vegetable, fruit, dairy, grain, beverage, snack, condiment, frozen, other
 
 Examples:
-- "Heritage Farm® Bone In Skin On Chicken Thighs, 1 lb" → {"name": "chicken thighs", "quantity": 1}
-- "2x Kroger AutumnCrisp Fresh Seedless Green Grapes" → {"name": "green grapes", "quantity": 2}
-- "Kroger® 93/7 Ground Beef Tray 1 LB" → {"name": "ground beef", "quantity": 1}
+- "Heritage Farm® Bone In Skin On Chicken Thighs, 1 lb" → {"name": "chicken thighs", "quantity": 1, "type": "poultry"}
+- "2x Kroger AutumnCrisp Fresh Seedless Green Grapes" → {"name": "green grapes", "quantity": 2, "type": "fruit"}
+- "Kroger® 93/7 Ground Beef Tray 1 LB" → {"name": "ground beef", "quantity": 1, "type": "meat"}
+- "Kroger® Heavy Whipping Cream Pint" → {"name": "heavy whipping cream", "quantity": 1, "type": "dairy"}
+- "Kroger® Less Sodium Fat Free Chicken Broth" → {"name": "chicken broth", "quantity": 1, "type": "beverage"}
+- "Frozen Dairy Dessert Sandwiches" → {"name": "ice cream sandwiches", "quantity": 1, "type": "frozen"}
+- "Fresh Cherry Tomatoes on the Vine" → {"name": "cherry tomatoes", "quantity": 1, "type": "vegetable"}
+- "Crushed Tomatoes" → {"name": "crushed tomatoes", "quantity": 1, "type": "condiment"}
 
 JSON array:''';
   }
@@ -133,13 +143,13 @@ JSON array:''';
           'Content-Type': 'application/json',
         },
         body: json.encode({
-          'model': 'llama2-uncensored:latest',
+          'model': 'llama3.2:3b',
           'prompt': prompt,
           'stream': false,
           'options': {
             'temperature': 0.1,
             'top_p': 0.9,
-            'num_predict': 200,
+            'num_predict': 500,
           }
         }),
       ).timeout(const Duration(seconds: 15));
@@ -178,10 +188,15 @@ JSON array:''';
           if (item is Map<String, dynamic>) {
             final name = item['name']?.toString();
             final quantity = item['quantity'];
+            final type = item['type']?.toString();
             
             if (name != null && name.isNotEmpty) {
               final qty = quantity is int ? quantity : (int.tryParse(quantity?.toString() ?? '1') ?? 1);
-              items.add(ParsedItem(name: _titleCase(name), quantity: qty));
+              items.add(ParsedItem(
+                name: _titleCase(name), 
+                quantity: qty,
+                type: type != null ? GroceryType.fromString(type) : GroceryType.other
+              ));
             }
           }
         }
@@ -352,9 +367,10 @@ JSON array:''';
 class ParsedItem {
   final String name;
   final int quantity;
-  ParsedItem({required this.name, required this.quantity});
-  ParsedItem copyWith({String? name, int? quantity}) =>
-      ParsedItem(name: name ?? this.name, quantity: quantity ?? this.quantity);
+  final GroceryType type;
+  ParsedItem({required this.name, required this.quantity, this.type = GroceryType.other});
+  ParsedItem copyWith({String? name, int? quantity, GroceryType? type}) =>
+      ParsedItem(name: name ?? this.name, quantity: quantity ?? this.quantity, type: type ?? this.type);
 }
 
 /// Barcode → product name mapping (local fallback)
