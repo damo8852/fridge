@@ -133,7 +133,7 @@ JSON array:''';
           'Content-Type': 'application/json',
         },
         body: json.encode({
-          'model': 'llama2-uncensored:latest',
+          'model': 'llama3.2:3b',
           'prompt': prompt,
           'stream': false,
           'options': {

@@ -109,33 +109,71 @@ class RecipesScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 16,
+                runSpacing: 4,
                 children: [
-                  Icon(
-                    Icons.access_time,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.secondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    recipe.prepTime,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.secondary,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.access_time,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${recipe.prepTime} prep',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.secondary,
+                            ),
+                      ),
+                      if (recipe.cookTime != 'Unknown') ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          '• ${recipe.cookTime} cook',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.secondary,
+                              ),
                         ),
+                      ],
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Icon(
-                    Icons.kitchen,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.secondary,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.kitchen,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${recipe.ingredients.length} ingredients',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.secondary,
+                            ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${recipe.ingredients.length} ingredients',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.secondary,
+                  if (recipe.shoppingList.isNotEmpty)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.shopping_cart,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.tertiary,
                         ),
-                  ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '+${recipe.shoppingList.length} to buy',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.tertiary,
+                              ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -238,42 +276,81 @@ class RecipesScreen extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          recipe.prepTime,
+                          '${recipe.prepTime} prep',
                           style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                        if (recipe.cookTime != 'Unknown') ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '• ${recipe.cookTime} cook',
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                        ],
+                      ],
+                    ),
+              const SizedBox(height: 24),
+              Text(
+                'Ingredients',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              ...recipe.ingredients.map((ingredient) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.check_circle_outline,
+                          size: 20,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            ingredient,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
                         ),
                       ],
                     ),
+                  )),
+              if (recipe.shoppingList.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                Text(
+                  'Shopping List',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                ...recipe.shoppingList.map((item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.secondary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              item,
+                              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Theme.of(context).colorScheme.secondary,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+              ],
                     const SizedBox(height: 24),
                     Text(
-                      'Ingredients',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    const SizedBox(height: 12),
-                    ...recipe.ingredients.map((ingredient) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.check_circle_outline,
-                                size: 20,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  ingredient,
-                                  style: Theme.of(context).textTheme.bodyLarge,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Instructions',
+                      'Directions',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -288,27 +365,30 @@ class RecipesScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Container(
-                              width: 28,
-                              height: 28,
+                              width: 32,
+                              height: 32,
                               decoration: BoxDecoration(
-                                color: Theme.of(context).colorScheme.primaryContainer,
+                                color: Theme.of(context).colorScheme.primary,
                                 shape: BoxShape.circle,
                               ),
                               child: Center(
                                 child: Text(
                                   '${index + 1}',
                                   style: TextStyle(
-                                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                    color: Theme.of(context).colorScheme.onPrimary,
                                     fontWeight: FontWeight.bold,
+                                    fontSize: 16,
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 16),
                             Expanded(
                               child: Text(
                                 instruction,
-                                style: Theme.of(context).textTheme.bodyLarge,
+                                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                      height: 1.5,
+                                    ),
                               ),
                             ),
                           ],

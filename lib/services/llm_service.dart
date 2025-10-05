@@ -10,8 +10,8 @@ class LLMService {
     'http://127.0.0.1:11434',      // Alternative localhost
     'http://10.0.0.214:11434',     // Physical device (update to your computer's IP)
   ];
-  static const String _model = 'llama3.2:latest'; // Default model
-  static const String _recipeModel = 'llama3.2:1b'; // Faster model for recipes only
+  static const String _model = 'llama3.2:3b'; // Default model
+  static const String _recipeModel = 'llama3.2:3b'; // Use same model for recipes
 
   String? _workingBaseUrl; // Cache the working URL
 
@@ -271,11 +271,39 @@ $itemName ->''';
     final limitedIngredients = ingredients.take(4).toList();
     final ingredientsList = limitedIngredients.join(', ');
 
-    // Ultra-simple prompt for 1B model
-    return '''Ingredients: $ingredientsList
+    // Focus on best tasting combinations with detailed instructions
+    return '''You have these ingredients: $ingredientsList
 
-Make $count recipes. JSON only:
-[{"name":"Recipe Name","ingredients":["item1","item2"],"instructions":["step1","step2"],"prepTime":"15min"}]''';
+Suggest $count simple, delicious recipes. Focus on the BEST tasting combinations, not using all ingredients.
+
+Return ONLY a valid JSON array with this exact format:
+[
+  {
+    "name": "Recipe Name",
+    "ingredients": ["2 tbsp olive oil", "1 lb chicken breast, cubed", "1 cup grapes"],
+    "instructions": [
+      "Heat oil in a large skillet over medium-high heat",
+      "Add chicken and cook for 5-6 minutes until golden brown",
+      "Add grapes and cook for 2-3 minutes until warmed through",
+      "Season with salt and pepper, serve immediately"
+    ],
+    "prepTime": "15min",
+    "cookTime": "10min",
+    "shoppingList": ["olive oil", "salt", "black pepper"]
+  }
+]
+
+Rules:
+- Focus on TASTE, not using every ingredient
+- Pick the BEST combinations from available ingredients
+- Include specific quantities and cooking times in ingredients
+- Write detailed, step-by-step instructions (4-6 steps)
+- Include cooking temperatures and times
+- Suggest 1-3 additional ingredients maximum
+- Make simple, delicious recipes people love
+- Don't force weird combinations
+
+Important: Return ONLY the JSON array, no other text.''';
   }
 
   Future<String?> _callOllamaForRecipes(String prompt) async {
@@ -296,11 +324,11 @@ Make $count recipes. JSON only:
           'prompt': prompt,
           'stream': false,
           'options': {
-            'temperature': 0.3, // Lower for more predictable/faster output
-            'top_p': 0.7,
-            'num_predict': 400, // Minimal tokens for 2 simple recipes
-            'num_ctx': 1024, // Smaller context
-            'repeat_penalty': 1.3, // Higher to reduce repetition
+            'temperature': 0.2, // Lower for more predictable output
+            'top_p': 0.8,
+            'num_predict': 800, // Increased for complete JSON generation
+            'num_ctx': 2048, // Larger context for better generation
+            'repeat_penalty': 1.2, // Moderate penalty
           }
         }),
       ).timeout(const Duration(seconds: 30)); // Shorter timeout with 1B model
@@ -322,10 +350,32 @@ Make $count recipes. JSON only:
 
   List<Map<String, dynamic>> _parseRecipes(String response) {
     try {
+      print('Raw recipe response: $response');
+      
+      // Clean the response first
+      var cleanResponse = response.trim();
+      
+      // Remove any markdown code blocks
+      cleanResponse = cleanResponse.replaceAll(RegExp(r'```json\s*|\s*```'), '');
+      
       // Try to find JSON array in the response
-      final jsonMatch = RegExp(r'\[[\s\S]*\]').firstMatch(response);
+      final jsonMatch = RegExp(r'\[[\s\S]*\]').firstMatch(cleanResponse);
       if (jsonMatch != null) {
-        final jsonStr = jsonMatch.group(0)!;
+        var jsonStr = jsonMatch.group(0)!;
+        
+        // Try to fix incomplete JSON by adding missing closing brackets
+        if (!jsonStr.endsWith(']')) {
+          // Count open brackets and add missing closes
+          final openBrackets = jsonStr.split('[').length - 1;
+          final closeBrackets = jsonStr.split(']').length - 1;
+          final missingCloses = openBrackets - closeBrackets;
+          
+          for (int i = 0; i < missingCloses; i++) {
+            jsonStr += ']';
+          }
+        }
+        
+        print('Cleaned JSON string: $jsonStr');
         final decoded = json.decode(jsonStr);
 
         if (decoded is List) {
@@ -336,6 +386,8 @@ Make $count recipes. JSON only:
                 'ingredients': (recipe['ingredients'] as List?)?.map((e) => e.toString()).toList() ?? [],
                 'instructions': (recipe['instructions'] as List?)?.map((e) => e.toString()).toList() ?? [],
                 'prepTime': recipe['prepTime']?.toString() ?? 'Unknown',
+                'cookTime': recipe['cookTime']?.toString() ?? 'Unknown',
+                'shoppingList': (recipe['shoppingList'] as List?)?.map((e) => e.toString()).toList() ?? [],
               };
             }
             return <String, dynamic>{};
@@ -344,6 +396,7 @@ Make $count recipes. JSON only:
       }
     } catch (e) {
       print('Error parsing recipes JSON: $e');
+      print('Response that failed to parse: $response');
     }
 
     // Fallback: return empty list if parsing fails
