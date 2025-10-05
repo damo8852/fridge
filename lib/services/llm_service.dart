@@ -16,12 +16,10 @@ class LLMService {
   Future<int?> predictExpiryDays(String itemName, {String? additionalContext}) async {
     try {
       final prompt = _buildPrompt(itemName, additionalContext);
-      print('LLM Prompt: "$prompt"');
       final response = await _callOllama(prompt);
       
       if (response != null) {
         final days = _parseExpiryDays(response);
-        print('Parsed days: $days');
         return days;
       }
     } catch (e) {
@@ -36,12 +34,10 @@ class LLMService {
   Future<Map<String, dynamic>?> predictExpiryAndType(String itemName, {String? additionalContext}) async {
     try {
       final prompt = _buildPromptWithType(itemName, additionalContext);
-      print('LLM Prompt: "$prompt"');
       final response = await _callOllama(prompt);
       
       if (response != null) {
         final result = _parseExpiryAndType(response);
-        print('Parsed result: $result');
         return result;
       }
     } catch (e) {
@@ -115,7 +111,6 @@ $itemName ->''';
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final result = data['response']?.toString().trim();
-        print('LLM Response: "$result"');
         return result;
       } else {
         print('Ollama API error: ${response.statusCode} - ${response.body}');

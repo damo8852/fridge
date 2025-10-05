@@ -94,7 +94,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       final file = File(x.path);
       final input = InputImage.fromFile(file);
       final result = await _textRecognizer.processImage(input);
-      final items = ReceiptParser.parse(result.text);
+      final items = await ReceiptParser.parse(result.text);
       setState(() => _preview = items);
     } catch (e) {
       setState(() => _err = 'OCR failed: $e');

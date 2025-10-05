@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:http/http.dart' as http;
 
 class ExpiryRules {
   final List<ExpiryRule> rules;
@@ -73,12 +74,128 @@ class ReceiptParser {
   static final _receiptHeader = RegExp(r'\b(?:receipt|invoice|order|transaction|purchase|check|register|terminal|pos|point\s*of\s*sale)\b', caseSensitive: false);
   static final _receiptFooter = RegExp(r'\b(?:thank\s*you|visit\s*us|store\s*hours|return\s*policy|warranty|guarantee|satisfaction|customer\s*service)\b', caseSensitive: false);
 
-  static List<ParsedItem> parse(String fullText) {
-    print('=== Receipt Parser Debug ===');
+  static Future<List<ParsedItem>> parse(String fullText) async {
+    print('=== LLM Receipt Parser ===');
     print('Raw OCR Text:');
     print(fullText);
-    print('============================');
+    print('==========================');
     
+    // Use LLM to extract food items from receipt text
+    return await _parseWithLLM(fullText);
+  }
+
+  static Future<List<ParsedItem>> _parseWithLLM(String receiptText) async {
+    try {
+      final prompt = _buildExtractionPrompt(receiptText);
+      print('LLM Prompt: "$prompt"');
+      
+      final response = await _callOllama(prompt);
+      if (response != null) {
+        print('LLM Response: "$response"');
+        final items = _parseLLMResponse(response);
+        print('Extracted items: ${items.map((i) => '${i.name} (${i.quantity})').join(', ')}');
+        return items;
+      }
+    } catch (e) {
+      print('LLM parsing failed: $e');
+    }
+    
+    // Fallback to regex parsing
+    print('Falling back to regex parsing');
+    return _parseWithRegex(receiptText);
+  }
+
+  static String _buildExtractionPrompt(String receiptText) {
+    return '''Extract food and grocery items from this receipt text. Return ONLY a JSON array of items.
+
+Receipt text:
+$receiptText
+
+Rules:
+- Only extract food/grocery items (not household items, electronics, etc.)
+- Include quantity if mentioned
+- Clean up names (remove brand names, sizes, but keep main food item)
+- Return JSON array format: [{"name": "item name", "quantity": number}]
+
+Examples:
+- "Heritage Farm® Bone In Skin On Chicken Thighs, 1 lb" → {"name": "chicken thighs", "quantity": 1}
+- "2x Kroger AutumnCrisp Fresh Seedless Green Grapes" → {"name": "green grapes", "quantity": 2}
+- "Kroger® 93/7 Ground Beef Tray 1 LB" → {"name": "ground beef", "quantity": 1}
+
+JSON array:''';
+  }
+
+  static Future<String?> _callOllama(String prompt) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://10.0.0.218:11434/api/generate'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'model': 'llama2-uncensored:latest',
+          'prompt': prompt,
+          'stream': false,
+          'options': {
+            'temperature': 0.1,
+            'top_p': 0.9,
+            'num_predict': 200,
+          }
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['response']?.toString().trim();
+      } else {
+        print('Ollama API error: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('HTTP request error: $e');
+    }
+    
+    return null;
+  }
+
+  static List<ParsedItem> _parseLLMResponse(String response) {
+    try {
+      // Clean the response
+      var cleanResponse = response.trim();
+      
+      // Remove any markdown code blocks
+      cleanResponse = cleanResponse.replaceAll(RegExp(r'```json\s*|\s*```'), '');
+      
+      // Try to find JSON array in the response
+      final jsonMatch = RegExp(r'\[.*\]', dotAll: true).firstMatch(cleanResponse);
+      if (jsonMatch != null) {
+        cleanResponse = jsonMatch.group(0)!;
+      }
+      
+      final data = json.decode(cleanResponse);
+      if (data is List) {
+        final items = <ParsedItem>[];
+        for (final item in data) {
+          if (item is Map<String, dynamic>) {
+            final name = item['name']?.toString();
+            final quantity = item['quantity'];
+            
+            if (name != null && name.isNotEmpty) {
+              final qty = quantity is int ? quantity : (int.tryParse(quantity?.toString() ?? '1') ?? 1);
+              items.add(ParsedItem(name: _titleCase(name), quantity: qty));
+            }
+          }
+        }
+        return items;
+      }
+    } catch (e) {
+      print('Failed to parse LLM response as JSON: $e');
+    }
+    
+    return [];
+  }
+
+  static List<ParsedItem> _parseWithRegex(String fullText) {
+    // Fallback to the original regex parsing logic
     final rawLines = fullText
         .split('\n')
         .map((l) => l.trim())
