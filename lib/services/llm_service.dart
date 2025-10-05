@@ -100,6 +100,16 @@ strawberries -> 4
 yogurt -> 10
 spinach -> 5
 beef -> 2
+salt -> 3650
+pepper -> 1095
+sugar -> 1095
+flour -> 365
+oil -> 365
+vinegar -> 1095
+honey -> 3650
+spices -> 1095
+herbs -> 730
+condiments -> 730
 
 $itemName ->''';
   }
@@ -120,6 +130,15 @@ strawberries -> {"days": 4, "type": "fruit"}
 yogurt -> {"days": 10, "type": "dairy"}
 spinach -> {"days": 5, "type": "vegetable"}
 beef -> {"days": 2, "type": "meat"}
+salt -> {"days": 3650, "type": "condiment"}
+pepper -> {"days": 1095, "type": "condiment"}
+sugar -> {"days": 1095, "type": "condiment"}
+flour -> {"days": 365, "type": "grain"}
+oil -> {"days": 365, "type": "condiment"}
+vinegar -> {"days": 1095, "type": "condiment"}
+honey -> {"days": 3650, "type": "condiment"}
+spices -> {"days": 1095, "type": "condiment"}
+herbs -> {"days": 730, "type": "condiment"}
 
 Types: meat, poultry, seafood, vegetable, fruit, dairy, grain, beverage, snack, condiment, frozen, other
 
@@ -282,14 +301,16 @@ $itemName ->''';
 Suggest $count simple, delicious recipes using these available ingredients.$categoryInstruction
 
 IMPORTANT INGREDIENT DISTINCTION:
-- "ingredients" array should ONLY include ingredients that are available in the fridge (from the list above)
-- "shoppingList" array should include ingredients that need to be purchased (NOT in the fridge)
+- "ingredients" array should include ingredients that are available in the fridge (from the list above) PLUS common pantry staples
+- "shoppingList" array should include ingredients that need to be purchased (NOT in the fridge and NOT common pantry staples)
+
+Common pantry staples (assume available): salt, pepper, olive oil, vegetable oil, butter, garlic, onions, flour, sugar, vinegar, soy sauce, ketchup, mustard, mayonnaise, herbs, spices
 
 Return ONLY a valid JSON array with this exact format:
 [
   {
     "name": "Recipe Name",
-    "ingredients": ["1 lb chicken breast, cubed", "1 cup grapes"],
+    "ingredients": ["1 lb chicken breast, cubed", "1 cup grapes", "2 tbsp olive oil", "salt and pepper"],
     "instructions": [
       "Heat oil in a large skillet over medium-high heat",
       "Add chicken and cook for 5-6 minutes until golden brown",
@@ -298,13 +319,13 @@ Return ONLY a valid JSON array with this exact format:
     ],
     "prepTime": "15min",
     "cookTime": "10min",
-    "shoppingList": ["olive oil", "salt", "black pepper"]
+    "shoppingList": ["fresh herbs"]
   }
 ]
 
 Rules:
-- "ingredients" array: ONLY use ingredients from the available list: $ingredientsList
-- "shoppingList" array: ingredients NOT in the fridge that need to be bought
+- "ingredients" array: Use ingredients from available list: $ingredientsList PLUS common pantry staples
+- "shoppingList" array: Only ingredients NOT in the fridge and NOT common pantry staples
 - Focus on TASTE, not using every available ingredient
 - Pick the BEST combinations from available ingredients
 - Include specific quantities in ingredients array

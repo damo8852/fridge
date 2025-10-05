@@ -57,9 +57,6 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     if (mounted) setState(() {});
   }
 
-  void _toggleDarkMode() {
-    _themeService.toggleDarkMode();
-  }
 
   @override
   void dispose() {
@@ -254,26 +251,12 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.3 : 0.1),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.qr_code_scanner_rounded,
-                color: Color(0xFF27AE60),
-                size: 20,
-              ),
+            const Icon(
+              Icons.qr_code_scanner_rounded,
+              color: Color(0xFF27AE60),
+              size: 24,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Text(
               'Smart Scanner',
               style: TextStyle(
@@ -288,21 +271,6 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
         iconTheme: IconThemeData(
           color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
         ),
-        actions: [
-          IconButton(
-            tooltip: _themeService.isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
-            onPressed: _toggleDarkMode,
-            icon: Icon(
-              _themeService.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-              color: _themeService.isDarkMode ? const Color(0xFFF1C40F) : const Color(0xFF7F8C8D),
-            ),
-            style: IconButton.styleFrom(
-              padding: const EdgeInsets.all(8),
-              minimumSize: const Size(32, 32),
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
       body: _buildReceiptTab(),
     );
@@ -374,72 +342,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                   ),
                 )
               : _preview.isEmpty
-                  ? const SizedBox.shrink()
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _preview.length,
-                      itemBuilder: (_, i) {
-                        final it = _preview[i];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.06),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(16),
-                            title: Text(
-                              it.name,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : const Color(0xFF2C3E50),
-                              ),
-                            ),
-                            subtitle: Container(
-                              margin: const EdgeInsets.only(top: 4),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: _themeService.isDarkMode 
-                                    ? const Color(0xFF2C3E50).withOpacity(0.3)
-                                    : const Color(0xFFE8F4FD),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Qty: ${it.quantity}',
-                                style: TextStyle(
-                                  color: _themeService.isDarkMode 
-                                      ? const Color(0xFF7BB3F0)
-                                      : const Color(0xFF3498DB),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            trailing: Container(
-                              decoration: BoxDecoration(
-                                color: _themeService.isDarkMode 
-                                    ? ThemeService.darkCardBackground
-                                    : const Color(0xFFF8F9FA),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: IconButton(
-                                icon: Icon(
-                                  Icons.edit_rounded,
-                                  color: _themeService.isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF4A90E2),
-                                ),
-                                onPressed: () => _editParsedItem(i),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                  ? _buildEmptyState()
+                  : _buildItemsList(),
         ),
         Container(
           margin: const EdgeInsets.only(top: 20),
@@ -579,6 +483,132 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       return SizedBox(width: double.infinity, child: button);
     }
     return button;
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF27AE60), Color(0xFF2ECC71)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF27AE60).withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.receipt_long_rounded,
+                size: 64,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Ready to Scan',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : const Color(0xFF2C3E50),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Take a photo of your receipt to automatically add items to your fridge',
+              style: TextStyle(
+                fontSize: 16,
+                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : const Color(0xFF7F8C8D),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemsList() {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: _preview.length,
+      itemBuilder: (_, i) {
+        final it = _preview[i];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.all(16),
+            title: Text(
+              it.name,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : const Color(0xFF2C3E50),
+              ),
+            ),
+            subtitle: Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: _themeService.isDarkMode 
+                    ? const Color(0xFF2C3E50).withOpacity(0.3)
+                    : const Color(0xFFE8F4FD),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: _themeService.isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF3498DB),
+                  width: 1,
+                ),
+              ),
+              child: Text(
+                'Qty: ${it.quantity}',
+                style: TextStyle(
+                  color: _themeService.isDarkMode 
+                      ? const Color(0xFF7BB3F0)
+                      : const Color(0xFF3498DB),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            trailing: Container(
+              decoration: BoxDecoration(
+                color: _themeService.isDarkMode 
+                    ? ThemeService.darkCardBackground
+                    : const Color(0xFFF8F9FA),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: IconButton(
+                icon: Icon(
+                  Icons.edit_rounded,
+                  color: _themeService.isDarkMode ? const Color(0xFF7BB3F0) : const Color(0xFF4A90E2),
+                ),
+                onPressed: () => _editParsedItem(i),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   // Removed _buildBarcodeTab method
