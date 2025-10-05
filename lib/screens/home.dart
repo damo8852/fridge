@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/auth.dart';
 import '../services/recipes.dart';
 import '../services/notifications.dart';
+import '../services/llm_service.dart';
 import '../widgets/item_tile.dart';
 import '../models/grocery_type.dart';
 import 'scan.dart';
@@ -22,6 +23,20 @@ class _HomePageState extends State<HomePage> {
   User get user => _auth.currentUser!;
   String _status = 'Ready';
   GroceryType? _selectedFilter;
+  bool _llmAvailable = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLLMAvailability();
+  }
+
+  Future<void> _checkLLMAvailability() async {
+    final available = await LLMService().isAvailable();
+    if (mounted) {
+      setState(() => _llmAvailable = available);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +67,19 @@ class _HomePageState extends State<HomePage> {
             child: Row(
               children: [
                 Expanded(child: Text('Hi, ${user.isAnonymous ? 'Guest' : (user.displayName ?? 'you')}')),
-                Text(_status, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+                Row(
+                  children: [
+                    Icon(
+                      _llmAvailable ? Icons.auto_awesome : Icons.auto_awesome_outlined,
+                      size: 16,
+                      color: _llmAvailable 
+                        ? Theme.of(context).colorScheme.primary 
+                        : Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(_status, style: TextStyle(color: Theme.of(context).colorScheme.primary)),
+                  ],
+                ),
               ],
             ),
           ),
@@ -188,6 +215,35 @@ class _HomePageState extends State<HomePage> {
     final qtyCtrl = TextEditingController(text: '1');
     DateTime expiry = DateTime.now().add(const Duration(days: 5));
     GroceryType selectedType = GroceryType.other;
+    bool isPredicting = false;
+
+    Future<void> predictExpiry() async {
+      final name = nameCtrl.text.trim();
+      if (name.isEmpty) return;
+      
+      setState(() => isPredicting = true);
+      
+      try {
+        final prediction = await LLMService().predictExpiryAndType(name);
+        if (prediction != null) {
+          final days = prediction['days'] as int?;
+          final type = prediction['type'] as String?;
+          
+          if (days != null) {
+            setState(() {
+              expiry = DateTime.now().add(Duration(days: days));
+              if (type != null) {
+                selectedType = GroceryType.fromString(type);
+              }
+            });
+          }
+        }
+      } catch (e) {
+        print('Prediction error: $e');
+      } finally {
+        setState(() => isPredicting = false);
+      }
+    }
 
     Future<void> save() async {
       final name = nameCtrl.text.trim();
@@ -220,23 +276,59 @@ class _HomePageState extends State<HomePage> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
+                TextField(
+                  controller: nameCtrl, 
+                  decoration: const InputDecoration(labelText: 'Name'),
+                  onChanged: (value) {
+                    // Trigger prediction when name changes (with debounce)
+                    if (value.trim().isNotEmpty) {
+                      Future.delayed(const Duration(milliseconds: 1000), () {
+                        if (nameCtrl.text.trim() == value.trim()) {
+                          predictExpiry();
+                        }
+                      });
+                    }
+                  },
+                ),
                 TextField(
                   controller: qtyCtrl,
                   decoration: const InputDecoration(labelText: 'Quantity'),
                   keyboardType: TextInputType.number,
                 ),
                 const SizedBox(height: 8),
-                DropdownButtonFormField<GroceryType>(
-                  value: selectedType,
-                  decoration: const InputDecoration(labelText: 'Grocery Type'),
-                  items: GroceryType.allTypes.map((type) => DropdownMenuItem(
-                    value: type,
-                    child: Text(type.displayName),
-                  )).toList(),
-                  onChanged: (value) {
-                    if (value != null) setLocal(() => selectedType = value);
-                  },
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<GroceryType>(
+                        value: selectedType,
+                        decoration: const InputDecoration(labelText: 'Grocery Type'),
+                        items: GroceryType.allTypes.map((type) => DropdownMenuItem(
+                          value: type,
+                          child: Text(type.displayName),
+                        )).toList(),
+                        onChanged: (value) {
+                          if (value != null) setLocal(() => selectedType = value);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: isPredicting ? null : () async {
+                        final name = nameCtrl.text.trim();
+                        if (name.isNotEmpty) {
+                          await predictExpiry();
+                        }
+                      },
+                      icon: isPredicting 
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.auto_awesome),
+                      tooltip: 'Predict expiry with AI',
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 TextButton.icon(

@@ -49,7 +49,7 @@ class ExpiryRule {
       ExpiryRule(match: List<String>.from(j['match']), days: j['days']);
 }
 
-/// Very lightweight receipt line parser (improved heuristics)
+/// Enhanced receipt line parser for modern receipt formats
 class ReceiptParser {
   // prices like 3.89 or $8.99
   static final _price = RegExp(r'(?<!\d)(?:\$)?\d{1,3}(?:[.,]\d{2})(?!\d)');
@@ -58,17 +58,27 @@ class ReceiptParser {
   static final _qtySuffix = RegExp(r'\s+x\s*(\d+)\s*$');
   // weight tokens we strip
   static final _weight = RegExp(r'\b\d+(?:\.\d+)?\s?(?:lb|lbs|oz|kg|g)\b', caseSensitive: false);
+  // UPC codes (12-13 digits)
+  static final _upc = RegExp(r'\b\d{12,13}\b');
   // obvious non-item lines
   static final _noise = RegExp(
-    r'\b(?:subtotal|total|tax|purchase|change|cash|visa|debit|credit|auth|exp(?:iration| date)?|cashier|lane|sequence|seq|eps|term|ref|date|time|pm|am|#\d+)\b',
+    r'\b(?:subtotal|total|tax|purchase|change|cash|visa|debit|credit|auth|exp(?:iration| date)?|cashier|lane|sequence|seq|eps|term|ref|date|time|pm|am|#\d+|receipt|store|thank|you|welcome|save|savings|discount|coupon|sale|clearance|manager|special|price|each|per|lb|oz|ct|pk|ea|pkg|misc|dept|tpr|promo)\b',
     caseSensitive: false,
   );
   // looks like a date/time line
   static final _dateLike = RegExp(r'\b\d{1,2}[:/.-]\d{1,2}[:/.-]\d{2,4}\b|\b\d{1,2}:\d{2}\s?(?:AM|PM)?\b', caseSensitive: false);
   // product codes / long digit runs
   static final _longDigits = RegExp(r'\b\d{5,}\b');
+  // common receipt headers/footers
+  static final _receiptHeader = RegExp(r'\b(?:receipt|invoice|order|transaction|purchase|check|register|terminal|pos|point\s*of\s*sale)\b', caseSensitive: false);
+  static final _receiptFooter = RegExp(r'\b(?:thank\s*you|visit\s*us|store\s*hours|return\s*policy|warranty|guarantee|satisfaction|customer\s*service)\b', caseSensitive: false);
 
   static List<ParsedItem> parse(String fullText) {
+    print('=== Receipt Parser Debug ===');
+    print('Raw OCR Text:');
+    print(fullText);
+    print('============================');
+    
     final rawLines = fullText
         .split('\n')
         .map((l) => l.trim())
@@ -77,9 +87,16 @@ class ReceiptParser {
 
     final items = <ParsedItem>[];
     var stopAtTotals = false;
+    var inItemSection = false;
 
     for (var line in rawLines) {
       final low = line.toLowerCase();
+
+      // Skip receipt headers
+      if (_receiptHeader.hasMatch(low)) continue;
+      
+      // Stop at receipt footers
+      if (_receiptFooter.hasMatch(low)) break;
 
       // Hard stop if we hit SUBTOTAL/TOTAL section
       if (low.contains('subtotal') || low.contains(RegExp(r'\btotal\b'))) {
@@ -87,57 +104,40 @@ class ReceiptParser {
       }
       if (stopAtTotals) continue;
 
-      // Quick reject: obvious noise, dates/times, long digit blobs
+      // Skip obvious noise lines
       if (_noise.hasMatch(low)) continue;
       if (_dateLike.hasMatch(low)) continue;
       if (_longDigits.hasMatch(low)) continue;
 
-      // Keep only lines that look like an item row:
-      //  - have a price OR a leading quantity OR a trailing "x2"
+      // Check if this looks like an item line
       final hasPrice = _price.hasMatch(line);
       final hasQtyPrefix = _qtyPrefix.hasMatch(line);
       final hasQtySuffix = _qtySuffix.hasMatch(line);
+      final hasUPC = _upc.hasMatch(line);
 
-      if (!(hasPrice || hasQtyPrefix || hasQtySuffix)) continue;
-
-      // Strip price/weight/junk tokens
-      var name = line
-          .replaceAll(_price, '')
-          .replaceAll(_weight, '')
-          .replaceAll(RegExp(r'\s{2,}'), ' ')
-          .trim();
-
-      // Extract quantity
-      int qty = 1;
-      final mPrefix = _qtyPrefix.firstMatch(name);
-      if (mPrefix != null) {
-        qty = int.tryParse(mPrefix.group(1) ?? '1') ?? 1;
-        name = name.replaceFirst(mPrefix.group(0)!, '').trim();
-      } else {
-        final mSuffix = _qtySuffix.firstMatch(name);
-        if (mSuffix != null) {
-          qty = int.tryParse(mSuffix.group(1) ?? '1') ?? 1;
-          name = name.replaceFirst(mSuffix.group(0)!, '').trim();
-        }
+      // If we have a price or quantity, we're in the item section
+      if (hasPrice || hasQtyPrefix || hasQtySuffix || hasUPC) {
+        inItemSection = true;
       }
 
-      // Remove product codes like "#12345" / "934518"
-      name = name.replaceAll(RegExp(r'#?\b\d{4,}\b'), '').trim();
+      // Skip lines that don't look like items
+      if (!inItemSection) continue;
 
-      // Drop common store abbreviations
-      name = name.replaceAll(RegExp(r'\b(pkg|ea|misc|dept|tpr|promo)\b', caseSensitive: false), '').trim();
-
-      // Keep only if we still have at least 2 alphabetic tokens
-      final alphaTokens = name.split(RegExp(r'\s+')).where((t) => RegExp(r'[A-Za-z]').hasMatch(t)).toList();
-      if (alphaTokens.length < 2) continue;
-
-      items.add(ParsedItem(name: _titleCase(name), quantity: qty));
+      // Process the line as a potential item
+      print('Processing line: "$line"');
+      var processedLine = _processItemLine(line);
+      if (processedLine != null) {
+        print('  -> Parsed: "${processedLine.name}" (qty: ${processedLine.quantity})');
+        items.add(processedLine);
+      } else {
+        print('  -> Rejected');
+      }
     }
 
     // Merge duplicates by normalized name
     final merged = <String, ParsedItem>{};
     for (final it in items) {
-      final key = it.name.toLowerCase();
+      final key = _normalizeName(it.name);
       final existing = merged[key];
       if (existing == null) {
         merged[key] = it;
@@ -145,7 +145,87 @@ class ReceiptParser {
         merged[key] = existing.copyWith(quantity: existing.quantity + it.quantity);
       }
     }
+    
+    print('Final parsed items: ${merged.values.map((i) => '${i.name} (${i.quantity})').join(', ')}');
+    print('============================');
+    
     return merged.values.toList();
+  }
+
+  static ParsedItem? _processItemLine(String line) {
+    // Extract quantity first
+    int qty = 1;
+    var name = line;
+    
+    final mPrefix = _qtyPrefix.firstMatch(name);
+    if (mPrefix != null) {
+      qty = int.tryParse(mPrefix.group(1) ?? '1') ?? 1;
+      name = name.replaceFirst(mPrefix.group(0)!, '').trim();
+    } else {
+      final mSuffix = _qtySuffix.firstMatch(name);
+      if (mSuffix != null) {
+        qty = int.tryParse(mSuffix.group(1) ?? '1') ?? 1;
+        name = name.replaceFirst(mSuffix.group(0)!, '').trim();
+      }
+    }
+
+    // Clean up the name by removing various patterns
+    name = _cleanItemName(name);
+    
+    // Validate the name
+    if (!_isValidItemName(name)) return null;
+
+    return ParsedItem(name: _titleCase(name), quantity: qty);
+  }
+
+  static String _cleanItemName(String name) {
+    // Remove prices
+    name = name.replaceAll(_price, '');
+    
+    // Remove weights
+    name = name.replaceAll(_weight, '');
+    
+    // Remove UPC codes
+    name = name.replaceAll(_upc, '');
+    
+    // Remove product codes
+    name = name.replaceAll(RegExp(r'#?\b\d{4,}\b'), '');
+    
+    // Remove common store abbreviations and noise words
+    name = name.replaceAll(RegExp(r'\b(pkg|ea|misc|dept|tpr|promo|ct|pk|lb|oz|each|per|price|sale|discount|coupon|clearance|manager|special)\b', caseSensitive: false), '');
+    
+    // Remove extra whitespace
+    name = name.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+    
+    // Remove leading/trailing punctuation
+    name = name.replaceAll(RegExp(r'^[^\w\s]+|[^\w\s]+$'), '');
+    
+    return name.trim();
+  }
+
+  static bool _isValidItemName(String name) {
+    if (name.isEmpty) return false;
+    
+    // Must have at least 2 alphabetic characters
+    final alphaCount = RegExp(r'[A-Za-z]').allMatches(name).length;
+    if (alphaCount < 2) return false;
+    
+    // Must not be mostly numbers or symbols
+    final alphaRatio = alphaCount / name.length;
+    if (alphaRatio < 0.3) return false;
+    
+    // Must not be too short or too long
+    if (name.length < 3 || name.length > 100) return false;
+    
+    return true;
+  }
+
+  static String _normalizeName(String name) {
+    return name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^\w\s]'), '') // Remove punctuation
+        .replaceAll(RegExp(r'\s+'), ' ') // Normalize whitespace
+        .trim();
   }
 
   static String _titleCase(String s) =>

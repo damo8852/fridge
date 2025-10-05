@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../services/parser.dart';
 import '../services/notifications.dart';
+import '../services/llm_service.dart';
 import '../models/grocery_type.dart';
 
 class ScanPage extends StatefulWidget {
@@ -119,7 +120,26 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       // final notificationTasks = <Future<void>>[];
 
       for (final it in _preview) {
-        final days = rules.guessDays(it.name);
+        // Try LLM prediction first, fallback to rules
+        int days = 5; // Default fallback
+        GroceryType itemType = GroceryType.other;
+        
+        try {
+          final prediction = await LLMService().predictExpiryAndType(it.name);
+          if (prediction != null) {
+            days = prediction['days'] as int? ?? rules.guessDays(it.name);
+            final typeStr = prediction['type'] as String?;
+            if (typeStr != null) {
+              itemType = GroceryType.fromString(typeStr);
+            }
+          } else {
+            days = rules.guessDays(it.name);
+          }
+        } catch (e) {
+          print('LLM prediction failed for ${it.name}, using rules: $e');
+          days = rules.guessDays(it.name);
+        }
+        
         final expiry = now.add(Duration(days: days));
         final doc = col.doc();
         
@@ -127,7 +147,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
           'name': it.name,
           'quantity': it.quantity,
           'expiryDate': Timestamp.fromDate(expiry),
-          'groceryType': GroceryType.other.name,
+          'groceryType': itemType.name,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'source': 'receipt',
@@ -201,8 +221,25 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     final nameCtrl = TextEditingController(text: name);
     final qtyCtrl = TextEditingController(text: '1');
     final rules = _rules ?? await ExpiryRules.load();
-    DateTime expiry = DateTime.now().add(Duration(days: rules.guessDays(name)));
+    
+    // Try LLM prediction first, fallback to rules
+    int days = rules.guessDays(name);
     GroceryType selectedType = GroceryType.other;
+    
+    try {
+      final prediction = await LLMService().predictExpiryAndType(name);
+      if (prediction != null) {
+        days = prediction['days'] as int? ?? rules.guessDays(name);
+        final typeStr = prediction['type'] as String?;
+        if (typeStr != null) {
+          selectedType = GroceryType.fromString(typeStr);
+        }
+      }
+    } catch (e) {
+      print('LLM prediction failed for $name, using rules: $e');
+    }
+    
+    DateTime expiry = DateTime.now().add(Duration(days: days));
 
     await showDialog(
       context: context,
