@@ -22,12 +22,27 @@ class AuthService {
   Future<UserCredential> signInWithGoogle() async {
     try {
       if (Platform.isAndroid || Platform.isIOS) {
-        final googleUser = await GoogleSignIn().signIn();
+        // Request openid/email/profile and provide the server client id so
+        // Android returns an idToken usable by Firebase.
+        final googleSignIn = GoogleSignIn(
+          scopes: <String>['email', 'profile', 'openid'],
+          serverClientId:
+              '99046813039-8q2tkobklp0qpik97hj0lj479sghln4c.apps.googleusercontent.com',
+        );
+
+        final googleUser = await googleSignIn.signIn();
         if (googleUser == null) {
           throw Exception('Google sign-in aborted by user.');
         }
 
         final googleAuth = await googleUser.authentication;
+
+        // Debug output: print tokens so you can verify what's returned.
+        // Remove or guard these prints in production.
+        // ignore: avoid_print
+        print('Google accessToken: ${googleAuth.accessToken}');
+        // ignore: avoid_print
+        print('Google idToken: ${googleAuth.idToken}');
 
         if (googleAuth.accessToken == null || googleAuth.idToken == null) {
           throw Exception('Missing Google authentication tokens.');
@@ -63,7 +78,12 @@ class AuthService {
   }
 
   Future<void> reauthenticateWithGoogle() async {
-    final googleUser = await GoogleSignIn().signIn();
+    final googleSignIn = GoogleSignIn(
+      scopes: <String>['email', 'profile', 'openid'],
+      serverClientId:
+          '99046813039-8q2tkobklp0qpik97hj0lj479sghln4c.apps.googleusercontent.com',
+    );
+    final googleUser = await googleSignIn.signIn();
     if (googleUser == null) throw Exception('Reauth aborted');
 
     final googleAuth = await googleUser.authentication;
@@ -77,7 +97,12 @@ class AuthService {
   }
 
   Future<void> linkWithGoogle() async {
-    final googleUser = await GoogleSignIn().signIn();
+    final googleSignIn = GoogleSignIn(
+      scopes: <String>['email', 'profile', 'openid'],
+      serverClientId:
+          '99046813039-8q2tkobklp0qpik97hj0lj479sghln4c.apps.googleusercontent.com',
+    );
+    final googleUser = await googleSignIn.signIn();
     final googleAuth = await googleUser?.authentication;
     
     if (googleAuth == null) throw Exception("Google auth failed");
@@ -97,7 +122,12 @@ class AuthService {
 
       if (isGoogleSignIn) {
         try {
-          await GoogleSignIn().signOut();
+          final googleSignIn = GoogleSignIn(
+            scopes: <String>['email', 'profile', 'openid'],
+            serverClientId:
+                '99046813039-8q2tkobklp0qpik97hj0lj479sghln4c.apps.googleusercontent.com',
+          );
+          await googleSignIn.signOut();
         } catch (_) {
           // Ignore Google sign-out error
         }
