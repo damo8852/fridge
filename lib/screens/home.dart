@@ -725,7 +725,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                     icon: Icons.qr_code_scanner_rounded,
                     label: 'Scan',
-                    color: const Color(0xFF27AE60),
+                    color: const Color(0xFF9B59B6),
                   ),
                 ),
               ],
@@ -833,6 +833,10 @@ class _HomePageState extends State<HomePage> {
                           }
                           
                           // Now delete from main collection
+                          await ref.delete();
+                        },
+                        onRemove: () async {
+                          // Simply delete the item without moving to finished_items
                           await ref.delete();
                         },
                       ),
@@ -1483,50 +1487,24 @@ class _CarbonEmissionsWidget extends StatefulWidget {
 }
 
 class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
-  double _carbonSaved = 0.0;
-  bool _isLoading = true;
-
   @override
   void initState() {
     super.initState();
-    _calculateCarbonSavings();
   }
 
-  Future<void> _calculateCarbonSavings() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+  double _calculateCarbonSavings(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    double totalCarbon = 0.0;
 
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('finished_items')
-          .get();
-
-      double totalCarbon = 0.0;
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final quantity = (data['quantity'] ?? 1) as num;
-        final groceryType = data['groceryType'] ?? 'other';
-        
-        double carbonPerKg = _getCarbonFootprint(groceryType);
-        totalCarbon += quantity * carbonPerKg * 0.5; // Assume average 0.5kg per item
-      }
-
-      if (mounted) {
-        setState(() {
-          _carbonSaved = totalCarbon;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+    for (var doc in docs) {
+      final data = doc.data();
+      final quantity = (data['quantity'] ?? 1) as num;
+      final groceryType = data['groceryType'] ?? 'other';
+      
+      double carbonPerKg = _getCarbonFootprint(groceryType);
+      totalCarbon += quantity * carbonPerKg * 0.5; // Assume average 0.5kg per item
     }
+
+    return totalCarbon;
   }
 
   double _getCarbonFootprint(String groceryType) {
@@ -1554,68 +1532,95 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF27AE60), Color(0xFF2ECC71)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF27AE60).withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('You\'ve saved ${_carbonSaved.toStringAsFixed(1)} kg CO₂ by using your food!'),
-                backgroundColor: const Color(0xFF27AE60),
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('finished_items')
+          .snapshots(),
+      builder: (context, snapshot) {
+        double carbonSaved = 0.0;
+        bool isLoading = true;
+        
+        if (snapshot.hasData) {
+          carbonSaved = _calculateCarbonSavings(snapshot.data!.docs);
+          isLoading = false;
+        }
+        
+        return Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF27AE60), Color(0xFF2ECC71)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF27AE60).withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
               ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.eco_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _isLoading ? 'Loading...' : '${_carbonSaved.toStringAsFixed(1)} kg',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('You\'ve saved ${carbonSaved.toStringAsFixed(1)} kg CO₂ by using your food!'),
+                    backgroundColor: const Color(0xFF27AE60),
                   ),
-                  textAlign: TextAlign.center,
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.eco_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                    const SizedBox(height: 4),
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                        TextSpan(
+                          text: isLoading ? 'Loading...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂ ',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                          TextSpan(
+                            text: 'Saved',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
-                const Text(
-                  'CO₂ Saved',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

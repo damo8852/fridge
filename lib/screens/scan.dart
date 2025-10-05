@@ -442,6 +442,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
                     ),
         ),
         Container(
+          margin: const EdgeInsets.only(top: 20),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,

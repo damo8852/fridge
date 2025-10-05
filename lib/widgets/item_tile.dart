@@ -11,6 +11,7 @@ class ItemTile extends StatelessWidget {
     required this.onEdit,
     required this.onUsedHalf,
     required this.onFinish,
+    required this.onRemove,
     this.isDarkMode = false,
   });
 
@@ -21,6 +22,7 @@ class ItemTile extends StatelessWidget {
   final VoidCallback onEdit;
   final Future<void> Function() onUsedHalf;
   final Future<void> Function() onFinish;
+  final Future<void> Function() onRemove;
   final bool isDarkMode;
 
   IconData _getGroceryIcon(GroceryType type) {
@@ -237,6 +239,7 @@ class ItemTile extends StatelessWidget {
                 if (v == 'edit') onEdit();
                 if (v == 'half') onUsedHalf();
                 if (v == 'finish') onFinish();
+                if (v == 'remove') onRemove();
               },
               itemBuilder: (_) => [
                 PopupMenuItem(
@@ -278,6 +281,20 @@ class ItemTile extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       const Text('Finished'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'remove',
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.delete_rounded,
+                        size: 18,
+                        color: Color(0xFFE74C3C),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Remove'),
                     ],
                   ),
                 ),

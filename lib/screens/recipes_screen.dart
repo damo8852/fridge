@@ -192,18 +192,18 @@ class _RecipesScreenState extends State<RecipesScreen> {
                         color: Theme.of(context).colorScheme.secondary,
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        '${recipe.prepTime} prep',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.secondary,
-                            ),
+                        Text(
+                          '${recipe.prepTime} prep',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.secondary,
+                              ),
                       ),
                       if (recipe.cookTime != 'Unknown') ...[
                         const SizedBox(width: 8),
                         Text(
                           '• ${recipe.cookTime} cook',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Theme.of(context).colorScheme.secondary,
+                                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.secondary,
                               ),
                         ),
                       ],
@@ -221,7 +221,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                       Text(
                         '${recipe.ingredients.length} from fridge',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
+                              color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.primary,
                             ),
                       ),
                     ],
@@ -239,7 +239,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                         Text(
                           '+${recipe.shoppingList.length} to buy',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Theme.of(context).colorScheme.tertiary,
+                                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.tertiary,
                               ),
                         ),
                       ],
@@ -252,7 +252,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                 'Available in your fridge:',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
+                      color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.primary,
                     ),
               ),
               const SizedBox(height: 4),
@@ -270,7 +270,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                           child: Text(
                             ingredient,
                             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface,
+                                  color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.onSurface,
                                 ),
                           ),
                         ),
@@ -283,7 +283,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                   child: Text(
                     '+ ${recipe.ingredients.length - 3} more from fridge',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
+                          color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.primary,
                           fontStyle: FontStyle.italic,
                         ),
                   ),
@@ -295,7 +295,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                   'Need to buy:',
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.tertiary,
+                        color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.tertiary,
                       ),
                 ),
                 const SizedBox(height: 4),
@@ -313,7 +313,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                             child: Text(
                               item,
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: Theme.of(context).colorScheme.tertiary,
+                                    color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.tertiary,
                                   ),
                             ),
                           ),
@@ -326,7 +326,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
                     child: Text(
                       '+ ${recipe.shoppingList.length - 2} more to buy',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.tertiary,
+                            color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.tertiary,
                             fontStyle: FontStyle.italic,
                           ),
                     ),
