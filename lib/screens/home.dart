@@ -3,12 +3,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../services/auth.dart';
-import '../services/recipes.dart';
-import '../services/notifications.dart';
 import '../services/llm_service.dart';
+import '../services/notifications.dart';
 import '../widgets/item_tile.dart';
 import '../models/grocery_type.dart';
+import '../models/recipe.dart';
 import 'scan.dart';
+import 'recipes_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -72,8 +73,8 @@ class _HomePageState extends State<HomePage> {
                     Icon(
                       _llmAvailable ? Icons.auto_awesome : Icons.auto_awesome_outlined,
                       size: 16,
-                      color: _llmAvailable 
-                        ? Theme.of(context).colorScheme.primary 
+                      color: _llmAvailable
+                        ? Theme.of(context).colorScheme.primary
                         : Theme.of(context).colorScheme.outline,
                     ),
                     const SizedBox(width: 4),
@@ -156,22 +157,22 @@ class _HomePageState extends State<HomePage> {
                 if (docs.isEmpty) {
                   return const _EmptyState();
                 }
-                
+
                 // Filter items by grocery type
-                final filteredDocs = _selectedFilter == null 
-                    ? docs 
+                final filteredDocs = _selectedFilter == null
+                    ? docs
                     : docs.where((doc) {
                         final data = doc.data();
                         final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
                         return groceryType == _selectedFilter;
                       }).toList();
-                
+
                 if (filteredDocs.isEmpty) {
                   return const Center(
                     child: Text('No items found for this filter'),
                   );
                 }
-                
+
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -220,15 +221,15 @@ class _HomePageState extends State<HomePage> {
     Future<void> predictExpiry() async {
       final name = nameCtrl.text.trim();
       if (name.isEmpty) return;
-      
+
       setState(() => isPredicting = true);
-      
+
       try {
         final prediction = await LLMService().predictExpiryAndType(name);
         if (prediction != null) {
           final days = prediction['days'] as int?;
           final type = prediction['type'] as String?;
-          
+
           if (days != null) {
             setState(() {
               expiry = DateTime.now().add(Duration(days: days));
@@ -277,7 +278,7 @@ class _HomePageState extends State<HomePage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
-                  controller: nameCtrl, 
+                  controller: nameCtrl,
                   decoration: const InputDecoration(labelText: 'Name'),
                   onChanged: (value) {
                     // Trigger prediction when name changes (with debounce)
@@ -319,7 +320,7 @@ class _HomePageState extends State<HomePage> {
                           await predictExpiry();
                         }
                       },
-                      icon: isPredicting 
+                      icon: isPredicting
                         ? const SizedBox(
                             width: 20,
                             height: 20,
@@ -500,20 +501,125 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _recommendRecipes() async {
     if (!mounted) return;
-    setState(() => _status = 'Getting recipes…');
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              'Generating simple recipes...',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Should take 10-20 seconds',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    setState(() => _status = 'Generating…');
+
     try {
-      final recipes = await RecipesService(region: 'us-central1').recommend();
+      // Check if LLM is available
+      final isLLMAvailable = await LLMService().isAvailable();
+      if (!isLLMAvailable) {
+        if (!mounted) return;
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Local LLM not available. Please ensure Ollama is running.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        setState(() => _status = 'LLM unavailable');
+        return;
+      }
+
+      // Fetch all items from Firestore
+      final ownerId = user.uid;
+      final snapshot = await _db
+          .collection('users')
+          .doc(ownerId)
+          .collection('items')
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        if (!mounted) return;
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Add some items to your fridge first!'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        setState(() => _status = 'No items');
+        return;
+      }
+
+      // Extract ingredient names
+      final ingredients = snapshot.docs
+          .map((doc) => doc.data()['name']?.toString() ?? '')
+          .where((name) => name.isNotEmpty)
+          .toList();
+
+      if (ingredients.isEmpty) {
+        if (!mounted) return;
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No ingredients found')),
+        );
+        setState(() => _status = 'No ingredients');
+        return;
+      }
+
+      // Generate recipes using local LLM (requesting 2 for faster generation)
+      final recipeData = await LLMService().generateRecipes(ingredients, count: 2);
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(recipes.isEmpty ? 'No matches yet' : recipes.join(' • '))),
+      Navigator.of(context).pop(); // Close loading dialog
+
+      if (recipeData.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not generate recipes. Please try again.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        setState(() => _status = 'Generation failed');
+        return;
+      }
+
+      // Convert to Recipe objects
+      final recipes = recipeData.map((data) => Recipe.fromMap(data)).toList();
+
+      // Navigate to RecipesScreen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RecipesScreen(
+            recipes: recipes,
+            usedIngredients: ingredients,
+          ),
+        ),
       );
+
+      setState(() => _status = 'Ready');
     } catch (e) {
       if (!mounted) return;
+      Navigator.of(context).pop(); // Close loading dialog
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Recipes unavailable: $e')),
+        SnackBar(content: Text('Error generating recipes: $e')),
       );
-    } finally {
-      if (mounted) setState(() => _status = 'Ready');
+      setState(() => _status = 'Error');
     }
   }
 }
