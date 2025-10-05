@@ -63,20 +63,6 @@ class AuthService {
     }
   }
 
-  Future<UserCredential> signInWithMicrosoft() async {
-    try {
-      final provider = OAuthProvider('microsoft.com');
-      provider.addScope('User.Read');
-      provider.setCustomParameters({
-        'prompt': 'select_account',
-      });
-
-      return await _auth.signInWithProvider(provider);
-    } catch (e) {
-      throw Exception('Microsoft sign-in failed: $e');
-    }
-  }
-
   Future<void> reauthenticateWithGoogle() async {
     final googleSignIn = GoogleSignIn(
       scopes: <String>['email', 'profile', 'openid'],
