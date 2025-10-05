@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/parser.dart';
 import '../services/notifications.dart';
 import '../services/llm_service.dart';
+import '../services/theme_service.dart';
 import '../models/grocery_type.dart';
 
 class ScanPage extends StatefulWidget {
@@ -29,6 +30,7 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   List<ParsedItem> _preview = [];
   bool _busy = false;
   String? _err;
+  late final ThemeService _themeService;
 
   ExpiryRules? _rules;
   UpcMap? _upc;
@@ -38,6 +40,8 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
+    _themeService = ThemeService();
+    _themeService.addListener(_onThemeChanged);
     _tab = TabController(length: 2, vsync: this);
     _barcodeCtrl = MobileScannerController(
       facing: CameraFacing.back,
@@ -54,14 +58,25 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     _loadAssets();
   }
 
+  void _onThemeChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   Future<void> _loadAssets() async {
     _rules ??= await ExpiryRules.load();
     _upc ??= await UpcMap.load();
     if (mounted) setState(() {});
   }
 
+  void _toggleDarkMode() {
+    _themeService.toggleDarkMode();
+  }
+
   @override
   void dispose() {
+    _themeService.removeListener(_onThemeChanged);
     _tab.dispose();
     _barcodeCtrl.dispose();
     _textRecognizer.close();
@@ -120,16 +135,17 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
       // final notificationTasks = <Future<void>>[];
 
       for (final it in _preview) {
-        // Try LLM prediction first, fallback to rules
+        // Use type from parsed item if available, otherwise try LLM prediction
         int days = 5; // Default fallback
-        GroceryType itemType = GroceryType.other;
+        GroceryType itemType = it.type; // Use type from parsed item
         
         try {
           final prediction = await LLMService().predictExpiryAndType(it.name);
           if (prediction != null) {
             days = prediction['days'] as int? ?? rules.guessDays(it.name);
+            // Only override type if LLM prediction is more specific than 'other'
             final typeStr = prediction['type'] as String?;
-            if (typeStr != null) {
+            if (typeStr != null && itemType == GroceryType.other) {
               itemType = GroceryType.fromString(typeStr);
             }
           } else {
@@ -359,11 +375,72 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
       appBar: AppBar(
-        title: const Text('Scan'),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: _themeService.isDarkMode ? ThemeService.darkCardBackground : Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.3 : 0.1),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.qr_code_scanner_rounded,
+                color: Color(0xFF27AE60),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Smart Scanner',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
+        elevation: 0,
+        actions: [
+          IconButton(
+            tooltip: _themeService.isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
+            onPressed: _toggleDarkMode,
+            icon: Icon(
+              _themeService.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+              color: _themeService.isDarkMode ? const Color(0xFFF1C40F) : const Color(0xFF7F8C8D),
+            ),
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(8),
+              minimumSize: const Size(32, 32),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
         bottom: TabBar(
           controller: _tab,
-          tabs: const [Tab(text: 'Receipt'), Tab(text: 'Barcode')],
+          labelColor: const Color(0xFF27AE60),
+          unselectedLabelColor: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+          indicatorColor: const Color(0xFF27AE60),
+          indicatorWeight: 3,
+          tabs: const [
+            Tab(
+              icon: Icon(Icons.receipt_rounded),
+              text: 'Receipt',
+            ),
+            Tab(
+              icon: Icon(Icons.qr_code_rounded),
+              text: 'Barcode',
+            ),
+          ],
         ),
       ),
       body: TabBarView(
@@ -380,74 +457,189 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     return Column(
       children: [
         if (_err != null)
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Text(_err!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE74C3C).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFE74C3C).withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: Color(0xFFE74C3C),
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _err!,
+                    style: const TextStyle(
+                      color: Color(0xFFE74C3C),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         Expanded(
           child: _busy
-              ? const Center(child: CircularProgressIndicator())
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF27AE60).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF27AE60)),
+                          strokeWidth: 3,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Processing receipt...',
+                        style: TextStyle(
+                          color: Color(0xFF7F8C8D),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
               : _preview.isEmpty
-                  ? const _ScanHint(text: 'Pick or snap a clear photo of your receipt.')
+                  ? _ScanHint(text: 'Pick or snap a clear photo of your receipt.', isDarkMode: _themeService.isDarkMode)
                   : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: _preview.length,
                       itemBuilder: (_, i) {
                         final it = _preview[i];
-                        return ListTile(
-                          title: Text(it.name),
-                          subtitle: Text('Qty: ${it.quantity}'),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.edit),
-                            onPressed: () => _editParsedItem(i),
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.06),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.all(16),
+                            title: Text(
+                              it.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF2C3E50),
+                              ),
+                            ),
+                            subtitle: Container(
+                              margin: const EdgeInsets.only(top: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F4FD),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Qty: ${it.quantity}',
+                                style: const TextStyle(
+                                  color: Color(0xFF3498DB),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            trailing: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8F9FA),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: IconButton(
+                                icon: const Icon(
+                                  Icons.edit_rounded,
+                                  color: Color(0xFF4A90E2),
+                                ),
+                                onPressed: () => _editParsedItem(i),
+                              ),
+                            ),
                           ),
                         );
                       },
                     ),
         ),
-        Padding(
-          padding: const EdgeInsets.all(12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x1A000000),
+                blurRadius: 10,
+                offset: Offset(0, -2),
+              ),
+            ],
+          ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.photo),
-                      label: const Text('Gallery'),
+                    child: _buildActionButton(
+                      icon: Icons.photo_library_rounded,
+                      label: 'Gallery',
+                      color: const Color(0xFF9B59B6),
                       onPressed: _busy ? null : () => _pickAndProcess(ImageSource.gallery),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.photo_camera),
-                      label: const Text('Camera'),
+                    child: _buildActionButton(
+                      icon: Icons.camera_alt_rounded,
+                      label: 'Camera',
+                      color: const Color(0xFF3498DB),
                       onPressed: _busy ? null : () => _pickAndProcess(ImageSource.camera),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: FilledButton.icon(
-                      icon: _busy ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ) : const Icon(Icons.check),
-                      label: Text(_busy ? 'Saving...' : 'Save items'),
+                    child: _buildActionButton(
+                      icon: _busy 
+                        ? null 
+                        : Icons.check_circle_rounded,
+                      label: _busy ? 'Saving...' : 'Save All',
+                      color: const Color(0xFF27AE60),
                       onPressed: (_preview.isEmpty || _busy) ? null : _saveAll,
+                      isLoading: _busy,
                     ),
                   ),
                 ],
               ),
               if (_preview.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.clear),
-                    label: const Text('Clear Preview'),
-                    onPressed: _busy ? null : _clearPreview,
-                  ),
+                const SizedBox(height: 12),
+                _buildActionButton(
+                  icon: Icons.clear_all_rounded,
+                  label: 'Clear Preview',
+                  color: const Color(0xFFE74C3C),
+                  onPressed: _busy ? null : _clearPreview,
+                  isFullWidth: true,
                 ),
               ],
             ],
@@ -457,28 +649,161 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
     );
   }
 
+  Widget _buildActionButton({
+    required IconData? icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+    bool isLoading = false,
+    bool isFullWidth = false,
+  }) {
+    Widget button = Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: onPressed != null ? color : color.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: onPressed != null ? [
+          BoxShadow(
+            color: color.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ] : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (icon != null && !isLoading) ...[
+                  Icon(
+                    icon,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                if (isLoading)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                if (isLoading) const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (isFullWidth) {
+      return SizedBox(width: double.infinity, child: button);
+    }
+    return button;
+  }
+
   Widget _buildBarcodeTab() {
     return Column(
       children: [
         Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: MobileScanner(
-              controller: _barcodeCtrl,
-              onDetect: (capture) async {
-                final list = capture.barcodes;
-                if (list.isEmpty) return;
-                final code = list.first.rawValue;
-                if (code == null) return;
-                await _barcodeCtrl.stop();
-                await _handleBarcode(code);
-              },
+          child: Container(
+            margin: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: MobileScanner(
+                controller: _barcodeCtrl,
+                onDetect: (capture) async {
+                  final list = capture.barcodes;
+                  if (list.isEmpty) return;
+                  final code = list.first.rawValue;
+                  if (code == null) return;
+                  await _barcodeCtrl.stop();
+                  await _handleBarcode(code);
+                },
+              ),
             ),
           ),
         ),
-        const Padding(
-          padding: EdgeInsets.all(12),
-          child: Text('Point the camera at a barcode'),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x1A000000),
+                blurRadius: 10,
+                offset: Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF27AE60).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.qr_code_rounded,
+                      color: Color(0xFF27AE60),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Point the camera at a barcode',
+                      style: TextStyle(
+                        color: Color(0xFF27AE60),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Supported formats: UPC, EAN, Code128',
+                style: TextStyle(
+                  color: const Color(0xFF7F8C8D),
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -486,12 +811,51 @@ class _ScanPageState extends State<ScanPage> with SingleTickerProviderStateMixin
 }
 
 class _ScanHint extends StatelessWidget {
-  const _ScanHint({required this.text});
+  const _ScanHint({required this.text, this.isDarkMode = false});
   final String text;
+  final bool isDarkMode;
+  
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Text(text, style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF27AE60).withOpacity(isDarkMode ? 0.2 : 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.receipt_long_rounded,
+                size: 64,
+                color: Color(0xFF27AE60),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Ready to scan!',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 14,
+                color: isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
