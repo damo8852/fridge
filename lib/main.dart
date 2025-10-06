@@ -30,18 +30,18 @@ Future<void> main() async {
   // Initialize configuration service with default API key
   await ConfigService().initializeWithDefaultKey();
 
-  runApp(const FridgeApp());
+  runApp(const EcoPantryApp());
 }
 
 
-class FridgeApp extends StatelessWidget {
-  const FridgeApp({super.key});
+class EcoPantryApp extends StatelessWidget {
+  const EcoPantryApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Fridge',
+      title: 'EcoPantry',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF27AE60)),
         useMaterial3: true,
       ),
       home: const AuthGate(), // <-- use the gate

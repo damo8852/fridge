@@ -104,7 +104,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Using ${widget.usedIngredients.length} ingredients from your fridge',
+                      widget.usedIngredients.isEmpty 
+                          ? 'No ingredients from fridge - using pantry staples'
+                          : 'Using ${widget.usedIngredients.length} ingredients from your fridge',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.onPrimaryContainer,
                             fontWeight: FontWeight.w600,
@@ -122,24 +124,32 @@ class _RecipesScreenState extends State<RecipesScreen> {
           if (_showIngredientsDetails)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: widget.usedIngredients.map((ingredient) {
-                  return Chip(
-                    label: Text(
-                      ingredient,
-                      style: const TextStyle(fontSize: 11),
+              child: widget.usedIngredients.isEmpty 
+                  ? Text(
+                      'These recipes use common pantry staples like salt, pepper, oil, garlic, onions, rice, pasta, and canned goods. You may need to buy a few fresh ingredients as listed in each recipe.',
+                      style: TextStyle(
+                        color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    )
+                  : Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: widget.usedIngredients.map((ingredient) {
+                        return Chip(
+                          label: Text(
+                            ingredient,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          backgroundColor: _themeService.isDarkMode ? ThemeService.darkBorder : Theme.of(context).colorScheme.surface,
+                          labelStyle: TextStyle(
+                            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.onSurface,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        );
+                      }).toList(),
                     ),
-                    backgroundColor: _themeService.isDarkMode ? ThemeService.darkBorder : Theme.of(context).colorScheme.surface,
-                    labelStyle: TextStyle(
-                      color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : Theme.of(context).colorScheme.onSurface,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  );
-                }).toList(),
-              ),
             ),
         ],
       ),

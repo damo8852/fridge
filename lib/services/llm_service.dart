@@ -272,6 +272,40 @@ $itemName ->''';
   }
 
   String _buildRecipePrompt(List<String> ingredients, int count, List<String>? preferredCategories) {
+    // Handle empty fridge case
+    if (ingredients.isEmpty) {
+      return '''Your fridge is currently empty. Suggest $count simple, delicious recipes that are easy to make with basic pantry staples and minimal shopping.
+
+Common pantry staples (assume available): salt, pepper, olive oil, vegetable oil, butter, garlic, onions, flour, sugar, vinegar, soy sauce, ketchup, mustard, mayonnaise, herbs, spices, rice, pasta, canned tomatoes, canned beans
+
+Return ONLY a valid JSON array with this exact format:
+[
+  {
+    "name": "Recipe Name",
+    "ingredients": ["2 cups rice", "1 can diced tomatoes", "2 tbsp olive oil", "salt and pepper"],
+    "instructions": [
+      "Cook rice according to package instructions",
+      "Heat oil in a pan and add diced tomatoes",
+      "Season with salt and pepper",
+      "Serve rice topped with tomato mixture"
+    ],
+    "prepTime": "10min",
+    "cookTime": "20min",
+    "shoppingList": ["fresh vegetables", "protein of choice"]
+  }
+]
+
+Rules:
+- Create recipes that require minimal ingredients to buy (2-4 items max)
+- Focus on pantry staples + a few fresh ingredients
+- Make simple, delicious recipes that are budget-friendly
+- Include specific quantities in ingredients array
+- Write detailed, step-by-step instructions (4-6 steps)
+- Clearly indicate what needs to be purchased in shoppingList
+
+Important: Return ONLY the JSON array, no other text.''';
+    }
+
     // Limit to 4 main ingredients for simplicity
     final limitedIngredients = ingredients.take(4).toList();
     final ingredientsList = limitedIngredients.join(', ');

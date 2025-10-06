@@ -1,11 +1,11 @@
 {
-    "name": "fridge",
-    "short_name": "fridge",
+    "name": "EcoPantry",
+    "short_name": "EcoPantry",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#27AE60",
+    "theme_color": "#27AE60",
+    "description": "EcoPantry - Reduce waste. Save money. Eat fresher.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
