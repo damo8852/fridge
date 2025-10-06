@@ -54,6 +54,7 @@ class _LoginScreenState extends State<_LoginScreen> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Icon(Icons.kitchen_rounded, size: 56),
                   const SizedBox(height: 12),
@@ -66,24 +67,25 @@ class _LoginScreenState extends State<_LoginScreen> {
                   if (_err != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(_err!, style: TextStyle(color: theme.colorScheme.error)),
+                      child: Text(_err!, style: TextStyle(color: theme.colorScheme.error), textAlign: TextAlign.center),
                     ),
 
-                  FilledButton.icon(
-                    onPressed: _busy ? null : () => _run(AuthService.instance.signInWithGoogle),
-                    icon: const Icon(Icons.login),
-                    label: const Text('Continue with Google'),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _busy ? null : () => _run(AuthService.instance.signInWithGoogle),
+                      icon: const Icon(Icons.login),
+                      label: const Text('Continue with Google'),
+                    ),
                   ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : () => _run(AuthService.instance.signInWithMicrosoft),
-                    icon: const Icon(Icons.account_circle),
-                    label: const Text('Continue with Microsoft'),
-                  ),
-                  const SizedBox(height: 10),
-                  TextButton(
-                    onPressed: _busy ? null : () => _run(AuthService.instance.signInAnonymously),
-                    child: const Text('Continue as guest'),
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: _busy ? null : () => _run(AuthService.instance.signInAnonymously),
+                      child: const Text('Continue as guest'),
+                    ),
                   ),
 
                   if (_busy) const Padding(
