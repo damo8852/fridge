@@ -57,9 +57,9 @@ class _LoginScreenState extends State<_LoginScreen> {
                 children: [
                   const Icon(Icons.kitchen_rounded, size: 56),
                   const SizedBox(height: 12),
-                  Text('Welcome to Fridge', style: theme.textTheme.headlineSmall),
-                  const SizedBox(height: 8),
-                  Text('Reduce waste. Save money. Eat fresher.',
+                   Text('Welcome to EcoPantry', style: theme.textTheme.headlineSmall),
+                   const SizedBox(height: 8),
+                   Text('Reduce waste. Save money. Eat fresher.',
                       style: theme.textTheme.bodyMedium),
                   const SizedBox(height: 16),
 
