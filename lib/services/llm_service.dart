@@ -194,17 +194,17 @@ $itemName ->''';
 
     // Look for patterns like "7", "7 days", "7-10", etc.
     final patterns = [
-      RegExp(r'^(\d{1,3})$'), // Just a number
-      RegExp(r'(\d{1,3})\s*days?'), // "7 days" or "7 day"
-      RegExp(r'(\d{1,3})[-–]\d+'), // "7-10" or "7–10"
-      RegExp(r'\b(\d{1,3})\b'), // Any number in the text
+      RegExp(r'^(\d{1,4})$'), // Just a number
+      RegExp(r'(\d{1,4})\s*days?'), // "7 days" or "7 day"
+      RegExp(r'(\d{1,4})[-–]\d+'), // "7-10" or "7–10"
+      RegExp(r'\b(\d{1,4})\b'), // Any number in the text
     ];
 
     for (final pattern in patterns) {
       final match = pattern.firstMatch(cleanResponse);
       if (match != null) {
         final days = int.tryParse(match.group(1)!);
-        if (days != null && days > 0 && days <= 365) {
+        if (days != null && days > 0 && days <= 3650) {
           return days;
         }
       }
@@ -251,13 +251,13 @@ $itemName ->''';
 
   /// Generate recipe suggestions based on available ingredients
   /// Returns a list of recipe objects with name, ingredients, and instructions
-  Future<List<Map<String, dynamic>>> generateRecipes(List<String> ingredients, {int count = 2, List<String>? preferredCategories}) async {
+  Future<List<Map<String, dynamic>>> generateRecipes(List<String> ingredients, {int count = 2, List<String>? preferredCategories, bool prioritizeFilteredItems = false, List<String>? prioritizedItems}) async {
     if (ingredients.isEmpty) {
       return [];
     }
 
     try {
-      final prompt = _buildRecipePrompt(ingredients, count, preferredCategories);
+      final prompt = _buildRecipePrompt(ingredients, count, preferredCategories, prioritizeFilteredItems, prioritizedItems);
       final response = await _callMistralForRecipes(prompt);
 
       if (response != null) {
@@ -271,7 +271,7 @@ $itemName ->''';
     return [];
   }
 
-  String _buildRecipePrompt(List<String> ingredients, int count, List<String>? preferredCategories) {
+  String _buildRecipePrompt(List<String> ingredients, int count, List<String>? preferredCategories, bool prioritizeFilteredItems, List<String>? prioritizedItems) {
     // Handle empty fridge case
     if (ingredients.isEmpty) {
       return '''Your fridge is currently empty. Suggest $count simple, delicious recipes that are easy to make with basic pantry staples and minimal shopping.
@@ -316,9 +316,19 @@ Important: Return ONLY the JSON array, no other text.''';
       categoryInstruction = '\n\nIMPORTANT: Focus on recipes that primarily use ingredients from these categories: ${preferredCategories.join(', ')}.';
     }
     
+    String priorityInstruction = '';
+    if (prioritizeFilteredItems && preferredCategories != null && preferredCategories.isNotEmpty) {
+      priorityInstruction = '\n\nPRIORITY: The user has filtered their fridge to show only ${preferredCategories.join(', ')} items. Prioritize recipes that use these filtered ingredients as the main components.';
+    }
+    
+    String prioritizedItemsInstruction = '';
+    if (prioritizedItems != null && prioritizedItems.isNotEmpty) {
+      prioritizedItemsInstruction = '\n\nHIGH PRIORITY: The user has specifically marked these items as priority: ${prioritizedItems.join(', ')}. Make sure to include these items as main ingredients in your recipe suggestions.';
+    }
+    
     return '''You have these ingredients available in your fridge: $ingredientsList
 
-Suggest $count simple, delicious recipes using these available ingredients.$categoryInstruction
+Suggest $count simple, delicious recipes using these available ingredients.$categoryInstruction$priorityInstruction$prioritizedItemsInstruction
 
 IMPORTANT INGREDIENT DISTINCTION:
 - "ingredients" array should include ingredients that are available in the fridge (from the list above) PLUS common pantry staples

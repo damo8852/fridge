@@ -6,11 +6,13 @@ import '../services/auth.dart';
 import '../services/llm_service.dart';
 import '../services/notifications.dart';
 import '../services/theme_service.dart';
+import '../services/parser.dart';
 import '../widgets/item_tile.dart';
 import '../models/grocery_type.dart';
 import '../models/recipe.dart';
 import 'scan.dart';
 import 'recipes_screen.dart';
+import 'auth_gate.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -26,10 +28,14 @@ class _HomePageState extends State<HomePage> {
   Set<GroceryType> _selectedFilters = {};
   late final ThemeService _themeService;
   bool _isSelectionMode = false;
+  bool _isMultiSelectMode = false;
   Set<String> _selectedItems = {};
   
   // Sorting options
   String _sortOption = 'expiry_asc';
+  
+  // Must contain filter
+  String _mustContainText = '';
 
   @override
   void initState() {
@@ -51,13 +57,27 @@ class _HomePageState extends State<HomePage> {
   }
 
 
-  void _toggleDarkMode() {
-    _themeService.toggleDarkMode();
-  }
 
   void _toggleSelectionMode() {
     setState(() {
       _isSelectionMode = !_isSelectionMode;
+      _isMultiSelectMode = _isSelectionMode;
+      _selectedItems.clear();
+    });
+  }
+
+  void _enterMultiSelectMode() {
+    setState(() {
+      _isMultiSelectMode = true;
+      _isSelectionMode = true;
+      _selectedItems.clear();
+    });
+  }
+
+  void _exitMultiSelectMode() {
+    setState(() {
+      _isMultiSelectMode = false;
+      _isSelectionMode = false;
       _selectedItems.clear();
     });
   }
@@ -80,7 +100,7 @@ class _HomePageState extends State<HomePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Selected Items'),
-        content: Text('Are you sure you want to delete ${_selectedItems.length} item(s)? This action cannot be undone.'),
+        content: Text('Are you sure you want to delete ${_selectedItems.length} item(s)?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -99,6 +119,17 @@ class _HomePageState extends State<HomePage> {
     
     if (confirmed != true) return;
     
+    // Store deleted items data for undo
+    final deletedItems = <String, Map<String, dynamic>>{};
+    for (final itemId in _selectedItems) {
+      final docRef = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
+      final docSnapshot = await docRef.get();
+      if (docSnapshot.exists) {
+        deletedItems[itemId] = docSnapshot.data() as Map<String, dynamic>;
+      }
+    }
+    
+    // Delete items
     final batch = _db.batch();
     for (final itemId in _selectedItems) {
       final docRef = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
@@ -107,13 +138,35 @@ class _HomePageState extends State<HomePage> {
     
     try {
       await batch.commit();
+      final deletedCount = _selectedItems.length;
       setState(() {
         _selectedItems.clear();
         _isSelectionMode = false;
+        _isMultiSelectMode = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Deleted ${_selectedItems.length} items')),
+          SnackBar(
+            content: Text('Deleted $deletedCount items'),
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                // Restore deleted items
+                final restoreBatch = _db.batch();
+                for (final entry in deletedItems.entries) {
+                  final docRef = _db.collection('users').doc(user.uid).collection('items').doc(entry.key);
+                  restoreBatch.set(docRef, entry.value);
+                }
+                await restoreBatch.commit();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Restored $deletedCount items')),
+                  );
+                }
+              },
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -128,83 +181,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _showLogoutConfirmation() async {
-    final user = _auth.currentUser;
-    final isGuestAccount = user?.isAnonymous ?? false;
-    
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Sign Out'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Are you sure you want to sign out?'),
-            if (isGuestAccount) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.warning_rounded,
-                      color: Colors.red,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Guest accounts will lose all data permanently when signing out. Consider creating an account to save your progress.',
-                        style: TextStyle(
-                          color: Colors.red.shade700,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: isGuestAccount ? Colors.red : null,
-            ),
-            child: const Text('Sign Out'),
-          ),
-        ],
-      ),
-    );
-    
-    if (confirmed == true) {
-      try {
-        await AuthService.instance.signOut();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to sign out: ${e.toString()}'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
-      }
-    }
-  }
 
   void _finishSelectedItems() async {
     if (_selectedItems.isEmpty) return;
@@ -233,6 +209,10 @@ class _HomePageState extends State<HomePage> {
     
     if (confirmed != true) return;
     
+    // Store finished items data and IDs for undo
+    final finishedItemsData = <String, Map<String, dynamic>>{};
+    final finishedItemsIds = <String, String>{}; // maps original item ID to finished_items doc ID
+    
     final batch = _db.batch();
     final user = _auth.currentUser!;
     
@@ -243,6 +223,7 @@ class _HomePageState extends State<HomePage> {
       final docSnapshot = await docRef.get();
       if (docSnapshot.exists) {
         final data = docSnapshot.data() as Map<String, dynamic>;
+        finishedItemsData[itemId] = data;
         
         // Move to finished_items collection
         final finishedItemsRef = _db
@@ -250,6 +231,8 @@ class _HomePageState extends State<HomePage> {
             .doc(user.uid)
             .collection('finished_items')
             .doc();
+        
+        finishedItemsIds[itemId] = finishedItemsRef.id;
         
         batch.set(finishedItemsRef, {
           'name': data['name'],
@@ -266,13 +249,50 @@ class _HomePageState extends State<HomePage> {
     
     try {
       await batch.commit();
+      final finishedCount = _selectedItems.length;
       setState(() {
         _selectedItems.clear();
         _isSelectionMode = false;
+        _isMultiSelectMode = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Finished ${_selectedItems.length} items')),
+          SnackBar(
+            content: Text('Finished $finishedCount items'),
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                // Restore items to main collection and remove from finished_items
+                final undoBatch = _db.batch();
+                for (final entry in finishedItemsData.entries) {
+                  final itemId = entry.key;
+                  final data = entry.value;
+                  
+                  // Restore to main collection
+                  final docRef = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
+                  undoBatch.set(docRef, data);
+                  
+                  // Remove from finished_items
+                  final finishedDocId = finishedItemsIds[itemId];
+                  if (finishedDocId != null) {
+                    final finishedDocRef = _db
+                        .collection('users')
+                        .doc(user.uid)
+                        .collection('finished_items')
+                        .doc(finishedDocId);
+                    undoBatch.delete(finishedDocRef);
+                  }
+                }
+                await undoBatch.commit();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Restored $finishedCount items')),
+                  );
+                }
+              },
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -332,6 +352,24 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  String _getFilterDisplayText() {
+    final parts = <String>[];
+    
+    if (_selectedFilters.isEmpty && _mustContainText.isEmpty) {
+      parts.add('All Items');
+    } else {
+      if (_selectedFilters.isNotEmpty) {
+        parts.add('${_selectedFilters.length} Categories');
+      }
+      if (_mustContainText.isNotEmpty) {
+        parts.add('contains "$_mustContainText"');
+      }
+    }
+    
+    parts.add(_getSortDisplayName(_sortOption));
+    return parts.join(' • ');
+  }
+
   void _showCompactFilters() {
     showModalBottomSheet(
       context: context,
@@ -386,6 +424,94 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
               ),
+              // Must contain text field
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.search_rounded,
+                          color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'MUST CONTAIN',
+                          style: TextStyle(
+                            color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 1,
+                      color: _themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Enter text to filter items...',
+                        hintStyle: TextStyle(
+                          color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                        ),
+                        suffixIcon: _mustContainText.isNotEmpty
+                            ? IconButton(
+                                icon: Icon(
+                                  Icons.clear_rounded,
+                                  color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                                ),
+                                onPressed: () {
+                                  setState(() => _mustContainText = '');
+                                  setDialogState(() {});
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: _themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: _themeService.isDarkMode ? ThemeService.darkBorder : ThemeService.lightBorder,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF4A90E2),
+                          ),
+                        ),
+                        filled: true,
+                        fillColor: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                      style: TextStyle(
+                        color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                      ),
+                      onChanged: (value) {
+                        setState(() => _mustContainText = value);
+                        setDialogState(() {});
+                      },
+                      controller: TextEditingController(text: _mustContainText),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
               // Multi-column filters
               Expanded(
                 child: Padding(
@@ -791,7 +917,7 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
       appBar: AppBar(
-        title: _isSelectionMode 
+        title: (_isSelectionMode || _isMultiSelectMode)
           ? Row(
               children: [
                 Text(
@@ -817,7 +943,24 @@ class _HomePageState extends State<HomePage> {
             ),
         backgroundColor: _themeService.isDarkMode ? ThemeService.darkBackground : ThemeService.lightBackground,
         elevation: 0,
-        actions: _isSelectionMode ? [
+        leading: (_isSelectionMode || _isMultiSelectMode) ? IconButton(
+          icon: Icon(
+            Icons.close_rounded,
+            color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+          ),
+          onPressed: _exitMultiSelectMode,
+          tooltip: 'Exit selection',
+        ) : Builder(
+          builder: (context) => IconButton(
+            icon: Icon(
+              Icons.menu,
+              color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+            ),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+            tooltip: 'Menu',
+          ),
+        ),
+        actions: (_isSelectionMode || _isMultiSelectMode) ? [
           IconButton(
             icon: Icon(
               Icons.select_all_rounded, 
@@ -850,6 +993,19 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             icon: Icon(
+              Icons.priority_high_rounded, 
+              size: 18,
+              color: _themeService.isDarkMode ? const Color(0xFFE57373) : const Color(0xFFE74C3C),
+            ),
+            onPressed: _selectedItems.isEmpty ? null : _prioritizeSelectedItems,
+            tooltip: 'Prioritize Selected',
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.all(6),
+              minimumSize: const Size(28, 28),
+            ),
+          ),
+          IconButton(
+            icon: Icon(
               Icons.delete_rounded, 
               size: 18,
               color: _themeService.isDarkMode ? const Color(0xFFE57373) : const Color(0xFFE74C3C),
@@ -863,44 +1019,75 @@ class _HomePageState extends State<HomePage> {
           ),
         ] : [
           IconButton(
-            tooltip: _themeService.isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
-            onPressed: _toggleDarkMode,
-            icon: Icon(
-              _themeService.isDarkMode ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-              color: _themeService.isDarkMode ? const Color(0xFFF1C40F) : const Color(0xFF7F8C8D),
-            ),
-            style: IconButton.styleFrom(
-              padding: const EdgeInsets.all(8),
-              minimumSize: const Size(32, 32),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Sign out',
-            onPressed: () => _showLogoutConfirmation(),
-            icon: const Icon(
-              Icons.logout_rounded,
-              color: Color(0xFF7F8C8D),
-            ),
-            style: IconButton.styleFrom(
-              padding: const EdgeInsets.all(8),
-              minimumSize: const Size(32, 32),
-            ),
+            icon: const Icon(Icons.checklist),
+            onPressed: _enterMultiSelectMode,
+            tooltip: 'Select items',
           ),
         ],
-        leading: _isSelectionMode 
-          ? IconButton(
-              icon: Icon(
-                Icons.close_rounded,
-                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+      ),
+      drawer: Drawer(
+        backgroundColor: _themeService.isDarkMode 
+            ? ThemeService.darkCard 
+            : ThemeService.lightCard,
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: ThemeService.primaryColor,
               ),
-              onPressed: _toggleSelectionMode,
-              tooltip: 'Cancel Selection',
-              style: IconButton.styleFrom(
-                padding: const EdgeInsets.all(8),
-                minimumSize: const Size(32, 32),
+              child: const Text(
+                'EcoPantry',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            )
-          : null,
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.settings,
+                color: _themeService.isDarkMode 
+                    ? ThemeService.darkTextPrimary 
+                    : ThemeService.lightTextPrimary,
+              ),
+              title: Text(
+                'Settings',
+                style: TextStyle(
+                  color: _themeService.isDarkMode 
+                      ? ThemeService.darkTextPrimary 
+                      : ThemeService.lightTextPrimary,
+                ),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/settings');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: Text(
+                'Logout',
+                style: TextStyle(
+                  color: _themeService.isDarkMode 
+                      ? ThemeService.darkTextPrimary 
+                      : ThemeService.lightTextPrimary,
+                ),
+              ),
+              onTap: () async {
+                Navigator.pop(context);
+                await AuthService.instance.signOut();
+                if (mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => const AuthGate()),
+                    (route) => false,
+                  );
+                }
+              },
+            ),
+          ],
+        ),
       ),
       floatingActionButton: Container(
         decoration: BoxDecoration(
@@ -936,156 +1123,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
-      body: Column(
-        children: [
-          // Welcome section
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: _themeService.isDarkMode 
-                ? const LinearGradient(
-                    colors: [Color(0xFF2C3E50), Color(0xFF34495E)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : const LinearGradient(
-                    colors: [Color(0xFF667eea), Color(0xFF764ba2)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: (_themeService.isDarkMode ? const Color(0xFF2C3E50) : const Color(0xFF667eea)).withOpacity(0.3),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Hi, ${user.isAnonymous ? 'Guest' : (user.displayName ?? 'you')}! 👋',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Manage your fridge items',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Compact Filter Button
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.08),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () => _showCompactFilters(),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.tune_rounded,
-                                color: Color(0xFF4A90E2),
-                                size: 20,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _selectedFilters.isEmpty 
-                                      ? 'All Items • ${_getSortDisplayName(_sortOption)}'
-                                      : '${_selectedFilters.length} Categories • ${_getSortDisplayName(_sortOption)}',
-                                  style: TextStyle(
-                                    color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                              Icon(
-                                Icons.arrow_forward_ios_rounded,
-                                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
-                                size: 16,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Action buttons
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _CarbonEmissionsWidget(isDarkMode: _themeService.isDarkMode),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildActionButton(
-                  onPressed: _recommendRecipes,
-                    icon: Icons.restaurant_menu_rounded,
-                    label: 'Recipes',
-                    color: const Color(0xFFE67E22),
-                ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildActionButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ScanPage()),
-                  ),
-                    icon: Icons.qr_code_scanner_rounded,
-                    label: 'Scan',
-                    color: const Color(0xFF9B59B6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _db
                   .collection('users')
                   .doc(ownerId)
@@ -1100,153 +1138,405 @@ class _HomePageState extends State<HomePage> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final docs = snap.data!.docs;
-                if (docs.isEmpty) {
-                  return _EmptyState(isDarkMode: _themeService.isDarkMode);
-                }
-
-                // Filter items by grocery type
-                final filteredDocs = _selectedFilters.isEmpty 
-                    ? docs 
-                    : docs.where((doc) {
-                        final data = doc.data();
-                        final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
-                        return _selectedFilters.contains(groceryType);
-                      }).toList();
-
-                if (filteredDocs.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'No items found for this filter',
-                      style: TextStyle(
-                        color: _themeService.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
-                        fontSize: 16,
-                      ),
-                    ),
-                  );
-                }
                 
+                // Filter items by grocery type and must contain text
+                final filteredDocs = docs.where((doc) {
+                  final data = doc.data();
+                  
+                  // Check grocery type filter
+                  if (_selectedFilters.isNotEmpty) {
+                    final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
+                    if (!_selectedFilters.contains(groceryType)) {
+                      return false;
+                    }
+                  }
+                  
+                  // Check must contain filter
+                  if (_mustContainText.isNotEmpty) {
+                    final itemName = (data['name'] ?? '').toString().toLowerCase();
+                    if (!itemName.contains(_mustContainText.toLowerCase())) {
+                      return false;
+                    }
+                  }
+                  
+                  return true;
+                }).toList();
+
                 // Sort the filtered items
                 final sortedDocs = _sortItems(filteredDocs);
                 
                 // Store current sorted docs for select all functionality
                 _currentSortedDocs = sortedDocs;
                 
-                return ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemCount: sortedDocs.length,
-                  itemBuilder: (context, i) {
-                    final ref = sortedDocs[i].reference;
-                    final data = sortedDocs[i].data();
-                    final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
-                    final itemId = sortedDocs[i].id;
-                    final isSelected = _selectedItems.contains(itemId);
-                    
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
-                        borderRadius: BorderRadius.circular(16),
-                        border: _isSelectionMode && isSelected 
-                          ? Border.all(color: const Color(0xFF27AE60), width: 2)
-                          : null,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.06),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
+                return CustomScrollView(
+                  slivers: [
+                    // Welcome section
+                    SliverToBoxAdapter(
+                      child: Container(
+                        margin: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          gradient: _themeService.isDarkMode 
+                            ? const LinearGradient(
+                                colors: [Color(0xFF2C3E50), Color(0xFF34495E)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              )
+                            : const LinearGradient(
+                                colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: (_themeService.isDarkMode ? const Color(0xFF2C3E50) : const Color(0xFF667eea)).withOpacity(0.3),
+                              blurRadius: 15,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Hi, ${user.isAnonymous ? 'Guest' : (user.displayName ?? 'you')}! 👋',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Manage your fridge items',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.8),
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            _CarbonEmissionsWidget(isDarkMode: _themeService.isDarkMode),
+                          ],
+                        ),
                       ),
-                      child: _isSelectionMode 
-                        ? ListTile(
-                            leading: Checkbox(
-                              value: isSelected,
-                              onChanged: (_) => _toggleItemSelection(itemId),
-                              activeColor: const Color(0xFF27AE60),
-                            ),
-                            title: Text(
-                              (data['name'] ?? 'Unknown').toString(),
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : const Color(0xFF2C3E50),
+                    ),
+                    
+                    // Compact Filter Button
+                    SliverToBoxAdapter(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.08),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(16),
+                                    onTap: () => _showCompactFilters(),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      child: Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.tune_rounded,
+                                            color: Color(0xFF4A90E2),
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              _getFilterDisplayText(),
+                                              style: TextStyle(
+                                                color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : ThemeService.lightTextPrimary,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                          Icon(
+                                            Icons.arrow_forward_ios_rounded,
+                                            color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : ThemeService.lightTextSecondary,
+                                            size: 16,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                            subtitle: Text(
-                              'Qty: ${data['quantity'] ?? 1} • ${groceryType.displayName}',
-                              style: TextStyle(
-                                color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : const Color(0xFF7F8C8D),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    // Action buttons
+                    SliverToBoxAdapter(
+                      child: Container(
+                        margin: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _buildActionButton(
+                              onPressed: _recommendRecipes,
+                                icon: Icons.restaurant_menu_rounded,
+                                label: 'Recipes',
+                                color: const Color(0xFFE67E22),
+                            ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildActionButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ScanPage()),
+                              ),
+                                icon: Icons.qr_code_scanner_rounded,
+                                label: 'Scan',
+                                color: const Color(0xFF9B59B6),
                               ),
                             ),
-                            onTap: () => _toggleItemSelection(itemId),
-                          )
-                        : ItemTile(
-                            name: (data['name'] ?? 'Unknown').toString(),
-                            expiry: (data['expiryDate'] as Timestamp?)?.toDate(),
-                            quantity: (data['quantity'] ?? 1),
-                            groceryType: groceryType,
-                            isDarkMode: _themeService.isDarkMode,
-                            isSelectionMode: _isSelectionMode,
-                            isSelected: _selectedItems.contains(itemId),
-                            onEdit: () => _editItemDialog(ref, data),
-                            onUsedHalf: () async {
-                              final q = data['quantity'];
-                              final newQ = (q is num) ? (q / 2) : 1;
-                              await ref.update({
-                                'quantity': newQ,
-                                'updatedAt': FieldValue.serverTimestamp(),
-                              });
-                            },
-                            onFinish: () async {
-                              // Move item to finished_items collection before deleting
-                              final docSnapshot = await ref.get();
-                              if (docSnapshot.exists) {
-                                final data = docSnapshot.data() as Map<String, dynamic>;
-                                final user = _auth.currentUser!;
-                                final finishedItemsRef = _db
-                                    .collection('users')
-                                    .doc(user.uid)
-                                    .collection('finished_items')
-                                    .doc();
-                                
-                                await finishedItemsRef.set({
-                                  'name': data['name'],
-                                  'quantity': data['quantity'],
-                                  'groceryType': data['groceryType'],
-                                  'finishedAt': FieldValue.serverTimestamp(),
-                                  'originalExpiryDate': data['expiryDate'],
-                                });
-                              }
-                              
-                              // Now delete from main collection
-                              await ref.delete();
-                            },
-                            onRemove: () async {
-                              // Simply delete the item without moving to finished_items
-                              await ref.delete();
-                            },
-                            onSelectMultiple: () {
-                              if (!_isSelectionMode) {
-                                _toggleSelectionMode();
-                                _toggleItemSelection(itemId);
-                              }
-                            },
-                            onSelectionChanged: (selected) {
-                              if (selected) {
-                                _selectedItems.add(itemId);
-                              } else {
-                                _selectedItems.remove(itemId);
-                              }
-                              setState(() {});
-                            },
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildActionButton(
+                                onPressed: _showPrioritizedItems,
+                                icon: Icons.priority_high_rounded,
+                                label: 'Priority',
+                                color: const Color(0xFFE74C3C),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    // Items list or empty state
+                    if (docs.isEmpty)
+                      SliverFillRemaining(
+                        child: _EmptyState(isDarkMode: _themeService.isDarkMode),
+                      )
+                    else if (filteredDocs.isEmpty)
+                      SliverFillRemaining(
+                        child: Center(
+                          child: Text(
+                            'No items found for this filter',
+                            style: TextStyle(
+                              color: _themeService.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+                              fontSize: 16,
+                            ),
                           ),
-                    );
-                  },
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.only(top: 1),
+                        sliver: SliverList.separated(
+                        itemCount: sortedDocs.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, i) {
+                          final ref = sortedDocs[i].reference;
+                          final data = sortedDocs[i].data();
+                          final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
+                          final itemId = sortedDocs[i].id;
+                          final isSelected = _selectedItems.contains(itemId);
+                          
+                          return Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: _themeService.isDarkMode ? ThemeService.darkCardBackground : ThemeService.lightCardBackground,
+                              borderRadius: BorderRadius.circular(16),
+                              border: _isSelectionMode && isSelected 
+                                ? Border.all(color: const Color(0xFF27AE60), width: 2)
+                                : null,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(_themeService.isDarkMode ? 0.2 : 0.06),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: _isSelectionMode 
+                              ? ListTile(
+                                  leading: Checkbox(
+                                    value: isSelected,
+                                    onChanged: (_) => _toggleItemSelection(itemId),
+                                    activeColor: const Color(0xFF27AE60),
+                                  ),
+                                  title: Text(
+                                    (data['name'] ?? 'Unknown').toString(),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: _themeService.isDarkMode ? ThemeService.darkTextPrimary : const Color(0xFF2C3E50),
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'Qty: ${data['quantity'] ?? 1} • ${groceryType.displayName}',
+                                    style: TextStyle(
+                                      color: _themeService.isDarkMode ? ThemeService.darkTextSecondary : const Color(0xFF7F8C8D),
+                                    ),
+                                  ),
+                                  onTap: () => _toggleItemSelection(itemId),
+                                )
+                              : ItemTile(
+                                  name: (data['name'] ?? 'Unknown').toString(),
+                                  expiry: (data['expiryDate'] as Timestamp?)?.toDate(),
+                                  quantity: (data['quantity'] ?? 1),
+                                  groceryType: groceryType,
+                                  isDarkMode: _themeService.isDarkMode,
+                                  isSelectionMode: _isSelectionMode,
+                                  isSelected: _selectedItems.contains(itemId),
+                                  isCompactView: _themeService.isCompactView,
+                                  onEdit: () => _editItemDialog(ref, data),
+                                  onUsedHalf: () async {
+                                    final q = data['quantity'];
+                                    final newQ = (q is num) ? (q / 2) : 1;
+                                    await ref.update({
+                                      'quantity': newQ,
+                                      'updatedAt': FieldValue.serverTimestamp(),
+                                    });
+                                  },
+                                  onFinish: () async {
+                                    // Store item data for undo
+                                    final docSnapshot = await ref.get();
+                                    if (!docSnapshot.exists) return;
+                                    
+                                    final data = docSnapshot.data() as Map<String, dynamic>;
+                                    final itemName = (data['name'] ?? 'Unknown').toString();
+                                    final user = _auth.currentUser!;
+                                    final itemId = ref.id;
+                                    
+                                    // Move to finished_items collection
+                                    final finishedItemsRef = _db
+                                        .collection('users')
+                                        .doc(user.uid)
+                                        .collection('finished_items')
+                                        .doc();
+                                    
+                                    await finishedItemsRef.set({
+                                      'name': data['name'],
+                                      'quantity': data['quantity'],
+                                      'groceryType': data['groceryType'],
+                                      'finishedAt': FieldValue.serverTimestamp(),
+                                      'originalExpiryDate': data['expiryDate'],
+                                    });
+                                    
+                                    // Delete from main collection
+                                    await ref.delete();
+                                    
+                                    // Show undo snackbar
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Finished "$itemName"'),
+                                          duration: const Duration(seconds: 3),
+                                          action: SnackBarAction(
+                                            label: 'Undo',
+                                            onPressed: () async {
+                                              // Restore to main collection
+                                              final docRef = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
+                                              await docRef.set(data);
+                                              
+                                              // Remove from finished_items
+                                              await finishedItemsRef.delete();
+                                              
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Restored "$itemName"')),
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  onRemove: () async {
+                                    // Store item data for undo
+                                    final docSnapshot = await ref.get();
+                                    if (!docSnapshot.exists) return;
+                                    
+                                    final data = docSnapshot.data() as Map<String, dynamic>;
+                                    final itemName = (data['name'] ?? 'Unknown').toString();
+                                    final itemId = ref.id;
+                                    
+                                    // Delete the item
+                                    await ref.delete();
+                                    
+                                    // Show undo snackbar
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Deleted "$itemName"'),
+                                          duration: const Duration(seconds: 3),
+                                          action: SnackBarAction(
+                                            label: 'Undo',
+                                            onPressed: () async {
+                                              // Restore the item
+                                              final docRef = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
+                                              await docRef.set(data);
+                                              
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Restored "$itemName"')),
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  onSelectMultiple: () {
+                                    if (!_isSelectionMode) {
+                                      _toggleSelectionMode();
+                                      _toggleItemSelection(itemId);
+                                    }
+                                  },
+                                  onPrioritize: () => _prioritizeItem(ref, data),
+                                  onUnprioritize: () => _unprioritizeItem(ref, data),
+                                  isPrioritized: data['isPrioritized'] == true,
+                                  onSelectionChanged: (selected) {
+                                    if (selected) {
+                                      _selectedItems.add(itemId);
+                                    } else {
+                                      _selectedItems.remove(itemId);
+                                    }
+                                    setState(() {});
+                                  },
+                                ),
+                          );
+                        },
+                      ),
+                      ),
+                    
+                    // Bottom padding for FAB
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 120),
+                    ),
+                  ],
                 );
               },
             ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1288,6 +1578,30 @@ class _HomePageState extends State<HomePage> {
     Future<void> save() async {
       final name = nameCtrl.text.trim();
       if (name.isEmpty) return;
+      
+      // Check for duplicates before adding
+      final existingItems = await _db
+          .collection('users')
+          .doc(user.uid)
+          .collection('items')
+          .get();
+      
+      final existingNames = existingItems.docs
+          .map((doc) => (doc.data()['name'] ?? '').toString().toLowerCase())
+          .toSet();
+      
+      if (existingNames.contains(name.toLowerCase())) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Item "$name" already exists in your fridge'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+      
       final ref = _db.collection('users').doc(user.uid).collection('items').doc();
       await ref.set({
         'name': name,
@@ -1316,19 +1630,50 @@ class _HomePageState extends State<HomePage> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                  onChanged: (value) {
-                    // Trigger prediction when name changes (with debounce)
-                    if (value.trim().isNotEmpty) {
-                      Future.delayed(const Duration(milliseconds: 1000), () {
-                        if (nameCtrl.text.trim() == value.trim()) {
-                          predictExpiry();
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(labelText: 'Name'),
+                        onChanged: (value) {
+                          // Trigger prediction when name changes (with debounce)
+                          if (value.trim().isNotEmpty) {
+                            Future.delayed(const Duration(milliseconds: 1000), () {
+                              if (nameCtrl.text.trim() == value.trim()) {
+                                predictExpiry();
+                              }
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () async {
+                        final name = nameCtrl.text.trim();
+                        if (name.isNotEmpty) {
+                          try {
+                            final simplifiedName = await ReceiptParser.simplifyFoodName(name);
+                            if (simplifiedName != name) {
+                              nameCtrl.text = simplifiedName;
+                              setLocal(() {});
+                              // Trigger prediction with simplified name
+                              Future.delayed(const Duration(milliseconds: 500), () {
+                                if (nameCtrl.text.trim() == simplifiedName) {
+                                  predictExpiry();
+                                }
+                              });
+                            }
+                          } catch (e) {
+                            print('AI simplification failed: $e');
+                          }
                         }
-                      });
-                    }
-                  },
+                      },
+                      icon: const Icon(Icons.auto_awesome),
+                      tooltip: 'Simplify name with AI',
+                    ),
+                  ],
                 ),
                 TextField(
                   controller: qtyCtrl,
@@ -1490,6 +1835,362 @@ class _HomePageState extends State<HomePage> {
   }
 
 
+  Future<void> _prioritizeItem(DocumentReference<Map<String, dynamic>> ref, Map<String, dynamic> data) async {
+    final itemName = (data['name'] ?? 'Unknown').toString();
+    
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Prioritize Item'),
+        content: Text('Prioritize "$itemName" for recipe suggestions? This will help generate recipes that use this item as a main ingredient.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFE74C3C),
+            ),
+            child: const Text('Prioritize'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed != true) return;
+    
+    // Add priority flag to the item
+    await ref.update({
+      'isPrioritized': true,
+      'prioritizedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"$itemName" has been prioritized for recipe suggestions'),
+          backgroundColor: const Color(0xFFE74C3C),
+        ),
+      );
+    }
+  }
+
+  Future<void> _prioritizeSelectedItems() async {
+    if (_selectedItems.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Prioritize Items'),
+        content: Text('Mark ${_selectedItems.length} selected items as priority for recipe suggestions?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFE74C3C),
+            ),
+            child: const Text('Prioritize'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final batch = _db.batch();
+      int successCount = 0;
+
+      for (final itemId in _selectedItems) {
+        try {
+          final ref = _db.collection('users').doc(user.uid).collection('items').doc(itemId);
+          batch.update(ref, {
+            'isPrioritized': true,
+            'prioritizedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          successCount++;
+        } catch (e) {
+          print('Error prioritizing item $itemId: $e');
+        }
+      }
+
+      await batch.commit();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$successCount items marked as priority'),
+            backgroundColor: const Color(0xFFE74C3C),
+          ),
+        );
+        _exitMultiSelectMode();
+      }
+    }
+  }
+
+  Future<void> _unprioritizeItem(DocumentReference<Map<String, dynamic>> ref, Map<String, dynamic> data) async {
+    final itemName = (data['name'] ?? 'Unknown').toString();
+    
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Priority'),
+        content: Text('Remove priority from "$itemName"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.orange,
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await ref.update({
+        'isPrioritized': false,
+        'prioritizedAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Priority removed from "$itemName"'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showPrioritizedItems() async {
+    try {
+      final prioritizedItems = await _db
+          .collection('users')
+          .doc(user.uid)
+          .collection('items')
+          .where('isPrioritized', isEqualTo: true)
+          .get();
+
+      if (!mounted) return;
+
+      // Sort items by prioritizedAt manually
+      final sortedItems = prioritizedItems.docs.toList()
+        ..sort((a, b) {
+          final aTime = a.data()['prioritizedAt'] as Timestamp?;
+          final bTime = b.data()['prioritizedAt'] as Timestamp?;
+          
+          if (aTime == null && bTime == null) return 0;
+          if (aTime == null) return 1;
+          if (bTime == null) return -1;
+          
+          return bTime.compareTo(aTime); // Descending order
+        });
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _themeService.isDarkMode 
+          ? ThemeService.darkCard 
+          : ThemeService.lightCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.priority_high_rounded,
+                    color: const Color(0xFFE74C3C),
+                    size: 24,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Prioritized Items',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: _themeService.isDarkMode 
+                          ? ThemeService.darkTextPrimary 
+                          : ThemeService.lightTextPrimary,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${sortedItems.length}',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: _themeService.isDarkMode 
+                          ? ThemeService.darkTextSecondary 
+                          : ThemeService.lightTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: sortedItems.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.priority_high_outlined,
+                            size: 64,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No prioritized items',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: _themeService.isDarkMode 
+                                  ? ThemeService.darkTextSecondary 
+                                  : ThemeService.lightTextSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Prioritize items to see them here',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: _themeService.isDarkMode 
+                                  ? ThemeService.darkTextSecondary 
+                                  : ThemeService.lightTextSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: sortedItems.length,
+                      itemBuilder: (context, index) {
+                        final doc = sortedItems[index];
+                        final data = doc.data();
+                        final ref = doc.reference;
+                        
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          color: _themeService.isDarkMode 
+                              ? ThemeService.darkBackground 
+                              : ThemeService.lightBackground,
+                          child: ListTile(
+                            leading: Icon(
+                              _getGroceryIcon(GroceryType.fromString(data['groceryType'] ?? 'other')),
+                              color: _getGroceryColor(GroceryType.fromString(data['groceryType'] ?? 'other')),
+                            ),
+                            title: Text(
+                              data['name'] ?? 'Unknown',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _themeService.isDarkMode 
+                                    ? ThemeService.darkTextPrimary 
+                                    : ThemeService.lightTextPrimary,
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Prioritized ${_formatPrioritizedDate(data['prioritizedAt'])}',
+                              style: TextStyle(
+                                color: _themeService.isDarkMode 
+                                    ? ThemeService.darkTextSecondary 
+                                    : ThemeService.lightTextSecondary,
+                              ),
+                            ),
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'unprioritize') {
+                                  _unprioritizeItem(ref, data);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'unprioritize',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.priority_high_outlined, color: Colors.orange),
+                                      SizedBox(width: 8),
+                                      Text('Remove Priority'),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading prioritized items: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatPrioritizedDate(dynamic timestamp) {
+    if (timestamp == null) return 'recently';
+    
+    try {
+      final date = timestamp.toDate();
+      final now = DateTime.now();
+      final difference = now.difference(date);
+      
+      if (difference.inDays > 0) {
+        return '${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
+      } else if (difference.inHours > 0) {
+        return '${difference.inHours} hour${difference.inHours == 1 ? '' : 's'} ago';
+      } else {
+        return 'just now';
+      }
+    } catch (e) {
+      return 'recently';
+    }
+  }
+
+
   Future<void> _recommendRecipes() async {
     if (!mounted) return;
 
@@ -1546,8 +2247,15 @@ class _HomePageState extends State<HomePage> {
         // The LLM will handle empty fridge case with pantry staples
       }
 
-      // Extract ingredient names
+      // Extract ingredient names and prioritize items
       final ingredients = snapshot.docs
+          .map((doc) => doc.data()['name']?.toString() ?? '')
+          .where((name) => name.isNotEmpty)
+          .toList();
+      
+      // Get prioritized items
+      final prioritizedItems = snapshot.docs
+          .where((doc) => doc.data()['isPrioritized'] == true)
           .map((doc) => doc.data()['name']?.toString() ?? '')
           .where((name) => name.isNotEmpty)
           .toList();
@@ -1570,14 +2278,16 @@ class _HomePageState extends State<HomePage> {
               return true; // We'll let the LLM handle the filtering based on categories
             }).toList();
 
-      // Generate recipes using Mistral AI (requesting 2 for faster generation)
-      // Pass selected filters to help the LLM focus on those categories
+      // Generate recipes using Mistral AI (requesting 3 for better variety)
+      // Pass selected filters and prioritized items to help the LLM focus
       final recipeData = await LLMService().generateRecipes(
         filteredIngredients, 
         count: 3,
         preferredCategories: _selectedFilters.isNotEmpty 
             ? _selectedFilters.map((type) => type.displayName).toList()
             : null,
+        prioritizeFilteredItems: _selectedFilters.isNotEmpty,
+        prioritizedItems: prioritizedItems,
       );
 
       if (!mounted) return;
@@ -1707,100 +2417,89 @@ class _EmptyStateState extends State<_EmptyState> {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFF27AE60).withOpacity(widget.isDarkMode ? 0.2 : 0.1),
-                borderRadius: BorderRadius.circular(20),
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Your fridge is empty',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: widget.isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
+                ),
               ),
-              child: const Icon(
-                Icons.eco_rounded,
-                size: 64,
-                color: Color(0xFF27AE60),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Your fridge is empty',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: widget.isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (_isLoading)
-              const CircularProgressIndicator()
-            else ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF27AE60).withOpacity(widget.isDarkMode ? 0.15 : 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF27AE60).withOpacity(0.3),
-                    width: 1,
+              const SizedBox(height: 12),
+              if (_isLoading)
+                const CircularProgressIndicator()
+              else ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF27AE60).withOpacity(widget.isDarkMode ? 0.15 : 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF27AE60).withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.eco_rounded,
+                            color: Color(0xFF27AE60),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Carbon Impact Saved',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: widget.isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${_carbonSaved.toStringAsFixed(1)} kg CO₂',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF27AE60),
+                        ),
+                      ),
+                      Text(
+                        'from ${_itemsFinished} items finished',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.eco_rounded,
-                          color: Color(0xFF27AE60),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Carbon Impact Saved',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: widget.isDarkMode ? const Color(0xFFE8E8E8) : const Color(0xFF2C3E50),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${_carbonSaved.toStringAsFixed(1)} kg CO₂',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF27AE60),
-                      ),
-                    ),
-                    Text(
-                      'from ${_itemsFinished} items finished',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                const SizedBox(height: 16),
+                _buildSustainabilityTips(),
+              ],
               const SizedBox(height: 16),
-              _buildSustainabilityTips(),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              'Tap "Add Item" to start tracking your groceries',
-              style: TextStyle(
-                fontSize: 14,
-                color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+              Text(
+                'Tap "Add Item" to start tracking your groceries',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: widget.isDarkMode ? const Color(0xFF9E9E9E) : const Color(0xFF7F8C8D),
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1954,29 +2653,23 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
         }
         
         return Container(
+          width: 100,
           constraints: const BoxConstraints(
-            minHeight: 60,
-            maxHeight: 80,
+            minHeight: 50,
+            maxHeight: 60,
           ),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF27AE60), Color(0xFF2ECC71)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+            color: const Color(0xFF27AE60).withOpacity(0.2),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: const Color(0xFF27AE60).withOpacity(0.3),
+              width: 1,
             ),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF27AE60).withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
           ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(8),
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -1986,63 +2679,27 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
                 );
               },
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(
                       Icons.eco_rounded,
                       color: Colors.white,
-                      size: 16,
+                      size: 14,
                     ),
                     const SizedBox(height: 2),
-                    Flexible(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          // Calculate appropriate font size based on content and available width
-                          final text = isLoading ? 'Loading...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂ Saved';
-                          final baseFontSize = 9.0;
-                          final maxWidth = constraints.maxWidth;
-                          
-                          // Estimate text width (rough calculation)
-                          final estimatedCharWidth = baseFontSize * 0.6; // Approximate character width
-                          final estimatedTextWidth = text.length * estimatedCharWidth;
-                          
-                          // Scale down font size if text is too wide
-                          double fontSize = baseFontSize;
-                          if (estimatedTextWidth > maxWidth * 0.9) {
-                            fontSize = (maxWidth * 0.9) / (text.length * 0.6);
-                            fontSize = fontSize.clamp(7.0, 11.0); // Keep within reasonable bounds
-                          }
-                          
-                          return Text.rich(
-                            TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: isLoading ? 'Loading...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: ' Saved',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 2,
-                          );
-                        },
+                    Text(
+                      isLoading ? '...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
                       ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),

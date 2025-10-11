@@ -4,6 +4,7 @@ import 'firebase_options.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'screens/auth_gate.dart';
+import 'screens/settings.dart';
 import 'services/notifications.dart';
 import 'services/theme_service.dart';
 import 'services/config_service.dart';
@@ -38,13 +39,32 @@ class EcoPantryApp extends StatelessWidget {
   const EcoPantryApp({super.key});
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'EcoPantry',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF27AE60)),
-        useMaterial3: true,
-      ),
-      home: const AuthGate(), // <-- use the gate
+    return ListenableBuilder(
+      listenable: ThemeService(),
+      builder: (context, child) {
+        final themeService = ThemeService();
+        return MaterialApp(
+          title: 'EcoPantry',
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF27AE60)),
+            useMaterial3: true,
+            brightness: Brightness.light,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF27AE60),
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+            brightness: Brightness.dark,
+          ),
+          themeMode: themeService.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          home: const AuthGate(), // <-- use the gate
+          routes: {
+            '/settings': (context) => const SettingsPage(),
+          },
+        );
+      },
     );
   }
 }

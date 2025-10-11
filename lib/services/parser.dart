@@ -85,7 +85,7 @@ class ReceiptParser {
       final response = await _callMistral(prompt);
       if (response != null && response.trim().isNotEmpty) {
         print('LLM Response: "$response"');
-        final items = _parseLLMResponse(response);
+        final items = await _parseLLMResponse(response);
         if (items.isNotEmpty) {
           print('Extracted items: ${items.map((i) => '${i.name} (${i.quantity})').join(', ')}');
           return items;
@@ -97,7 +97,7 @@ class ReceiptParser {
     
     // Fallback to improved regex parsing
     print('Falling back to improved regex parsing');
-    return _parseWithImprovedRegex(receiptText);
+    return await _parseWithImprovedRegex(receiptText);
   }
 
   static String _buildExtractionPrompt(String receiptText) {
@@ -109,10 +109,18 @@ $receiptText
 Rules:
 - Extract EVERY food/grocery item you can find
 - Include quantity if mentioned (default to 1 if not specified)
-- Clean up names (remove brand names, sizes, but keep main food item)
+- Clean up names (remove brand names, sizes, descriptions, explanations)
 - Categorize each item by grocery type
 - Return JSON array format: [{"name": "item name", "quantity": number, "type": "grocery_type"}]
 - Look for items even if the text is messy or has OCR errors
+- CRITICAL: Avoid duplicates - if you see "X brand avocados" AND "avocados" as separate items, only return "avocados"
+- CRITICAL: Avoid duplicates #2 - if you see "Country Style Pork Ribs" AND "Country Style Pork Ribs", only return "Country Style Pork Ribs"
+- CRITICAL: Keep names CLEAN and READABLE - no explanations, no "→" arrows, no extra text
+- CRITICAL: Expand abbreviations naturally (e.g., "chkn thgh" → "chicken thigh", "avoc" → "avocado")
+- CRITICAL: Remove brand names but keep descriptive terms (e.g., "Fever Tree Tonic" → "tonic water", "Haas Avocado" → "avocado", "Country Style Pork Ribs" → "country style pork ribs")
+- CRITICAL: Keep specific food descriptions when they add value (e.g., "Country Style Pork Ribs" not just "pork ribs")
+- CRITICAL: Merge similar items with different descriptions into single entries
+- CRITICAL: Return clean, readable food names with appropriate specificity
 
 Available types: meat, poultry, seafood, vegetable, fruit, dairy, grain, beverage, snack, condiment, frozen, other
 
@@ -120,11 +128,13 @@ Examples:
 - "Heritage Farm® Bone In Skin On Chicken Thighs, 1 lb" → {"name": "chicken thighs", "quantity": 1, "type": "poultry"}
 - "2x Kroger AutumnCrisp Fresh Seedless Green Grapes" → {"name": "green grapes", "quantity": 2, "type": "fruit"}
 - "Kroger® 93/7 Ground Beef Tray 1 LB" → {"name": "ground beef", "quantity": 1, "type": "meat"}
-- "Kroger® Heavy Whipping Cream Pint" → {"name": "heavy whipping cream", "quantity": 1, "type": "dairy"}
-- "Kroger® Less Sodium Fat Free Chicken Broth" → {"name": "chicken broth", "quantity": 1, "type": "beverage"}
-- "Frozen Dairy Dessert Sandwiches" → {"name": "ice cream sandwiches", "quantity": 1, "type": "frozen"}
-- "Fresh Cherry Tomatoes on the Vine" → {"name": "cherry tomatoes", "quantity": 1, "type": "vegetable"}
-- "Crushed Tomatoes" → {"name": "crushed tomatoes", "quantity": 1, "type": "condiment"}
+- "Fever Tree Tonic Water" → {"name": "tonic water", "quantity": 1, "type": "beverage"}
+- "Haas Avocado" → {"name": "avocado", "quantity": 1, "type": "fruit"}
+- "Country Style Pork Ribs" → {"name": "country style pork ribs", "quantity": 1, "type": "meat"}
+- "chkn thgh" → {"name": "chicken thigh", "quantity": 1, "type": "poultry"}
+- "grnd bf" → {"name": "ground beef", "quantity": 1, "type": "meat"}
+- "avoc" → {"name": "avocado", "quantity": 1, "type": "fruit"}
+- "tom" → {"name": "tomato", "quantity": 1, "type": "vegetable"}
 
 JSON array:''';
   }
@@ -172,7 +182,7 @@ JSON array:''';
     return null;
   }
 
-  static List<ParsedItem> _parseLLMResponse(String response) {
+  static Future<List<ParsedItem>> _parseLLMResponse(String response) async {
     try {
       // Clean the response
       var cleanResponse = response.trim();
@@ -197,8 +207,11 @@ JSON array:''';
             
             if (name != null && name.isNotEmpty) {
               final qty = quantity is int ? quantity : (int.tryParse(quantity?.toString() ?? '1') ?? 1);
+              // Clean the name first, then use AI for simplification
+              final cleanedName = _cleanAIResponse(name);
+              final simplifiedName = await _simplifyFoodNameWithAI(cleanedName) ?? _simplifyFoodName(cleanedName);
               items.add(ParsedItem(
-                name: _titleCase(name), 
+                name: _titleCase(simplifiedName), 
                 quantity: qty,
                 type: type != null ? GroceryType.fromString(type) : GroceryType.other
               ));
@@ -214,7 +227,7 @@ JSON array:''';
     return [];
   }
 
-  static List<ParsedItem> _parseWithImprovedRegex(String fullText) {
+  static Future<List<ParsedItem>> _parseWithImprovedRegex(String fullText) async {
     final rawLines = fullText
         .split('\n')
         .map((l) => l.trim())
@@ -246,7 +259,7 @@ JSON array:''';
 
       // Process the line as a potential item
       print('Processing line: "$line"');
-      var processedLine = _processItemLineImproved(line);
+      var processedLine = await _processItemLineImproved(line);
       if (processedLine != null) {
         print('  -> Parsed: "${processedLine.name}" (qty: ${processedLine.quantity})');
         items.add(processedLine);
@@ -255,15 +268,34 @@ JSON array:''';
       }
     }
 
-    // Merge duplicates by normalized name
+    // Merge duplicates by normalized name with enhanced similarity checking
     final merged = <String, ParsedItem>{};
     for (final it in items) {
       final key = _normalizeName(it.name);
-      final existing = merged[key];
-      if (existing == null) {
-        merged[key] = it;
+      ParsedItem? existingItem;
+      String? existingKey;
+      
+      // Check for exact match first
+      existingItem = merged[key];
+      if (existingItem != null) {
+        existingKey = key;
       } else {
-        merged[key] = existing.copyWith(quantity: existing.quantity + it.quantity);
+        // Check for similar items using fuzzy matching
+        for (final entry in merged.entries) {
+          if (_areSimilarFoodItems(it.name, entry.value.name)) {
+            existingItem = entry.value;
+            existingKey = entry.key;
+            break;
+          }
+        }
+      }
+      
+      if (existingItem != null && existingKey != null) {
+        // Merge with existing item
+        merged[existingKey] = existingItem.copyWith(quantity: existingItem.quantity + it.quantity);
+      } else {
+        // Add as new item
+        merged[key] = it;
       }
     }
     
@@ -274,7 +306,7 @@ JSON array:''';
   }
 
 
-  static ParsedItem? _processItemLineImproved(String line) {
+  static Future<ParsedItem?> _processItemLineImproved(String line) async {
     // More aggressive parsing for common receipt patterns
     var name = line;
     int qty = 1;
@@ -316,7 +348,9 @@ JSON array:''';
       if (!_isValidItemName(name)) return null;
     }
 
-    return ParsedItem(name: _titleCase(name), quantity: qty);
+    // Use AI for food name simplification, fallback to static mapping
+    final simplifiedName = await _simplifyFoodNameWithAI(name) ?? _simplifyFoodName(name);
+    return ParsedItem(name: _titleCase(simplifiedName), quantity: qty);
   }
 
 
@@ -394,6 +428,248 @@ JSON array:''';
 
   static String _titleCase(String s) =>
       s.split(' ').map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}').join(' ');
+
+  /// Public method to simplify food names using AI with static fallback
+  static Future<String> simplifyFoodName(String name) async {
+    final aiResult = await _simplifyFoodNameWithAI(name);
+    return aiResult ?? _simplifyFoodName(name);
+  }
+
+  // Food name simplification map for common abbreviations
+  static final Map<String, String> _foodAbbreviations = {
+    // Poultry
+    'chkn': 'chicken',
+    'chk': 'chicken',
+    'thgh': 'thigh',
+    'thighs': 'thigh',
+    'brst': 'breast',
+    'brsts': 'breast',
+    'legs': 'leg',
+    'wngs': 'wing',
+    'wings': 'wing',
+    
+    // Beef
+    'grnd': 'ground',
+    'bf': 'beef',
+    'stk': 'steak',
+    'chp': 'chop',
+    'chops': 'chop',
+    
+    // Pork
+    'ham': 'ham',
+    'bcn': 'bacon',
+    
+    // Dairy
+    'milk': 'milk',
+    'chz': 'cheese',
+    'yog': 'yogurt',
+    'cream': 'cream',
+    'butter': 'butter',
+    
+    // Vegetables
+    'veg': 'vegetable',
+    'veggie': 'vegetable',
+    'tom': 'tomato',
+    'tomatoes': 'tomato',
+    'onions': 'onion',
+    'potatoes': 'potato',
+    'lettuce': 'lettuce',
+    'carrots': 'carrot',
+    'peppers': 'pepper',
+    'cucumbers': 'cucumber',
+    
+    // Fruits
+    'apples': 'apple',
+    'bananas': 'banana',
+    'oranges': 'orange',
+    'grapes': 'grape',
+    'berries': 'berry',
+    'strawberries': 'strawberry',
+    'blueberries': 'blueberry',
+    
+    // Grains
+    'bread': 'bread',
+    'rice': 'rice',
+    'pasta': 'pasta',
+    'noodles': 'noodle',
+    
+    // Seafood
+    'fish': 'fish',
+    'salmon': 'salmon',
+    'tuna': 'tuna',
+    'shrimp': 'shrimp',
+    'crab': 'crab',
+    'lobster': 'lobster',
+    
+    // Beverages
+    'juice': 'juice',
+    'soda': 'soda',
+    'water': 'water',
+    'beer': 'beer',
+    'wine': 'wine',
+    
+    // Frozen
+    'ice cream': 'ice cream',
+    'frozen': 'frozen',
+    
+    // Condiments
+    'sauce': 'sauce',
+    'ketchup': 'ketchup',
+    'mustard': 'mustard',
+    'mayo': 'mayonnaise',
+    'mayonnaise': 'mayonnaise',
+    'salt': 'salt',
+    'spice': 'spice',
+    'herb': 'herb',
+    'herbs': 'herb',
+    
+    // Snacks
+    'chips': 'chip',
+    'crackers': 'cracker',
+    'cookies': 'cookie',
+    'candy': 'candy',
+    'chocolate': 'chocolate',
+  };
+
+  /// AI-powered food name simplification using Mistral
+  static Future<String?> _simplifyFoodNameWithAI(String name) async {
+    try {
+      final prompt = _buildFoodSimplificationPrompt(name);
+      final response = await _callMistral(prompt);
+      
+      if (response != null && response.trim().isNotEmpty) {
+        String simplified = response.trim();
+        
+        // Clean up any verbose responses
+        simplified = _cleanAIResponse(simplified);
+        
+        // Validate that we got a reasonable response
+        if (simplified.length > 1 && simplified.length < 100) {
+          return simplified.toLowerCase();
+        }
+      }
+    } catch (e) {
+      print('AI food simplification failed for "$name": $e');
+    }
+    
+    return null; // Fallback to static mapping
+  }
+
+  /// Clean up verbose AI responses
+  static String _cleanAIResponse(String response) {
+    // Remove explanations in parentheses
+    response = response.replaceAll(RegExp(r'\([^)]*\)'), '').trim();
+    
+    // Remove arrows and explanations
+    response = response.replaceAll(RegExp(r'\s*→\s*.*'), '').trim();
+    response = response.replaceAll(RegExp(r'\s*->\s*.*'), '').trim();
+    
+    // Remove quotes if the entire response is quoted
+    if (response.startsWith('"') && response.endsWith('"')) {
+      response = response.substring(1, response.length - 1);
+    }
+    
+    // Remove "no changes needed" type explanations
+    response = response.replaceAll(RegExp(r'no changes needed.*', caseSensitive: false), '').trim();
+    response = response.replaceAll(RegExp(r'already clear.*', caseSensitive: false), '').trim();
+    response = response.replaceAll(RegExp(r'already readable.*', caseSensitive: false), '').trim();
+    
+    return response.trim();
+  }
+
+  static String _buildFoodSimplificationPrompt(String foodName) {
+    return '''Simplify this food item name to be clean and readable. Return ONLY the simplified name, no explanation or extra text.
+
+Food name: "$foodName"
+
+Rules:
+- Expand abbreviations naturally (chkn → chicken, grnd → ground, bf → beef, chz → cheese, avoc → avocado, tom → tomato)
+- Remove brand names but keep descriptive terms (Fever Tree Tonic → tonic water, Haas Avocado → avocado, Country Style Pork Ribs → country style pork ribs)
+- Remove measurements and sizes
+- Keep specific food descriptions when they add value
+- Make it clean and readable
+- Return only the food name, nothing else
+
+Examples:
+"chkn thgh" → "chicken thigh"
+"grnd bf" → "ground beef" 
+"avoc" → "avocado"
+"tom" → "tomato"
+"chz" → "cheese"
+"Fever Tree Tonic Water" → "tonic water"
+"Haas Avocado" → "avocado"
+"Country Style Pork Ribs" → "country style pork ribs"
+"milk 1% lowfat" → "lowfat milk"
+"grn beans" → "green beans"
+
+Simplified name:''';
+  }
+
+  /// Static mapping fallback for food name simplification
+  static String _simplifyFoodName(String name) {
+    String simplified = name.toLowerCase();
+    
+    // Remove common brand names
+    final brandNames = ['fever tree', 'haas', 'kroger', 'heritage farm', 'organic', 'fresh', 'simple truth', 'private selection'];
+    for (String brand in brandNames) {
+      simplified = simplified.replaceAll(brand, '').trim();
+    }
+    
+    // Split into words and simplify each word
+    List<String> words = simplified.split(' ');
+    List<String> simplifiedWords = [];
+    
+    for (String word in words) {
+      // Remove common suffixes and clean up
+      String cleanWord = word.replaceAll(RegExp(r'[^a-z]'), '');
+      
+      // Skip empty words
+      if (cleanWord.isEmpty) continue;
+      
+      // Check if it's an abbreviation we know
+      if (_foodAbbreviations.containsKey(cleanWord)) {
+        simplifiedWords.add(_foodAbbreviations[cleanWord]!);
+      } else {
+        // Keep the word as is if it's not an abbreviation
+        simplifiedWords.add(cleanWord);
+      }
+    }
+    
+    return simplifiedWords.join(' ');
+  }
+
+  static bool _areSimilarFoodItems(String name1, String name2) {
+    final normalized1 = _normalizeName(name1);
+    final normalized2 = _normalizeName(name2);
+    
+    // Exact match after normalization
+    if (normalized1 == normalized2) return true;
+    
+    // Check if one contains the other (e.g., "avocados" vs "organic avocados")
+    if (normalized1.contains(normalized2) || normalized2.contains(normalized1)) {
+      return true;
+    }
+    
+    // Check for common food item patterns
+    final words1 = normalized1.split(' ');
+    final words2 = normalized2.split(' ');
+    
+    // If they share significant words, they might be the same item
+    final commonWords = words1.where((word) => words2.contains(word) && word.length > 2).length;
+    final totalWords = (words1.length + words2.length) / 2;
+    
+    // If more than 50% of words are common, consider them similar
+    if (commonWords / totalWords > 0.5) return true;
+    
+    // Check for brand vs generic items (e.g., "Kroger avocados" vs "avocados")
+    final brandWords = ['kroger', 'heritage', 'farm', 'private', 'selection', 'simple', 'truth', 'organic', 'red', 'gold'];
+    final cleanWords1 = words1.where((word) => !brandWords.contains(word)).toList();
+    final cleanWords2 = words2.where((word) => !brandWords.contains(word)).toList();
+    
+    if (cleanWords1.join(' ') == cleanWords2.join(' ')) return true;
+    
+    return false;
+  }
 }
 
 class ParsedItem {

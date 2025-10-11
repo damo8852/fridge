@@ -7,13 +7,17 @@ class ThemeService extends ChangeNotifier {
   ThemeService._internal();
 
   bool _isDarkMode = false;
+  bool _isCompactView = false;
   bool get isDarkMode => _isDarkMode;
+  bool get isCompactView => _isCompactView;
 
   static const String _darkModeKey = 'dark_mode';
+  static const String _compactViewKey = 'compact_view';
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _isDarkMode = prefs.getBool(_darkModeKey) ?? false;
+    _isCompactView = prefs.getBool(_compactViewKey) ?? false;
     notifyListeners();
   }
 
@@ -31,8 +35,20 @@ class ThemeService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> toggleTheme() async {
+    await toggleDarkMode();
+  }
+
+  Future<void> toggleCompactView() async {
+    _isCompactView = !_isCompactView;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_compactViewKey, _isCompactView);
+    notifyListeners();
+  }
+
   // Dark mode colors
   static const Color darkBackground = Color(0xFF1A1A1A);
+  static const Color darkCard = Color(0xFF2C2C2C);
   static const Color darkCardBackground = Color(0xFF2C2C2C);
   static const Color darkTextPrimary = Color(0xFFE8E8E8);
   static const Color darkTextSecondary = Color(0xFF9E9E9E);
@@ -40,8 +56,12 @@ class ThemeService extends ChangeNotifier {
 
   // Light mode colors
   static const Color lightBackground = Color(0xFFF8F9FA);
+  static const Color lightCard = Colors.white;
   static const Color lightCardBackground = Colors.white;
   static const Color lightTextPrimary = Color(0xFF2C3E50);
   static const Color lightTextSecondary = Color(0xFF7F8C8D);
   static const Color lightBorder = Color(0xFFE0E0E0);
+
+  // Primary color
+  static const Color primaryColor = Color(0xFF27AE60);
 }
