@@ -13,6 +13,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final ThemeService _themeService = ThemeService();
   bool _isDarkMode = false;
   bool _isCompactView = false;
+  bool _useLbs = true;
 
   @override
   void initState() {
@@ -24,6 +25,7 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _isDarkMode = _themeService.isDarkMode;
       _isCompactView = _themeService.isCompactView;
+      _useLbs = _themeService.useLbs;
     });
   }
 
@@ -39,6 +41,13 @@ class _SettingsPageState extends State<SettingsPage> {
       _isCompactView = value;
     });
     _themeService.toggleCompactView();
+  }
+
+  void _toggleCarbonUnit(bool value) {
+    setState(() {
+      _useLbs = value;
+    });
+    _themeService.toggleCarbonUnit();
   }
 
   Future<void> _logout() async {
@@ -154,6 +163,59 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     value: _isCompactView,
                     onChanged: _toggleCompactView,
+                    activeColor: ThemeService.primaryColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Units Section
+          Card(
+            color: _themeService.isDarkMode 
+                ? ThemeService.darkCard 
+                : ThemeService.lightCard,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Units',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: _themeService.isDarkMode 
+                          ? ThemeService.darkTextPrimary 
+                          : ThemeService.lightTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Carbon Unit Toggle
+                  SwitchListTile(
+                    title: Text(
+                      'Use Pounds (lbs)',
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextPrimary 
+                            : ThemeService.lightTextPrimary,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _useLbs 
+                          ? 'Carbon savings shown in lbs CO₂' 
+                          : 'Carbon savings shown in kg CO₂',
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextSecondary 
+                            : ThemeService.lightTextSecondary,
+                      ),
+                    ),
+                    value: _useLbs,
+                    onChanged: _toggleCarbonUnit,
                     activeColor: ThemeService.primaryColor,
                   ),
                 ],

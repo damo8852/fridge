@@ -60,7 +60,7 @@ class LLMService {
 
     return '''Food item: $itemName$context
 
-Predict days until expiry. Respond with ONLY a number:
+Predict days until expiry. You can also assume that items that belong in the fridge are refridgerated accordingly. Respond with ONLY a number:
 
 For Example:
 milk -> 7

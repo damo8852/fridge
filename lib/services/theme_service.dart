@@ -8,16 +8,20 @@ class ThemeService extends ChangeNotifier {
 
   bool _isDarkMode = false;
   bool _isCompactView = false;
+  bool _useLbs = true; // Default to lbs for carbon display
   bool get isDarkMode => _isDarkMode;
   bool get isCompactView => _isCompactView;
+  bool get useLbs => _useLbs;
 
   static const String _darkModeKey = 'dark_mode';
   static const String _compactViewKey = 'compact_view';
+  static const String _useLbsKey = 'use_lbs';
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _isDarkMode = prefs.getBool(_darkModeKey) ?? false;
     _isCompactView = prefs.getBool(_compactViewKey) ?? false;
+    _useLbs = prefs.getBool(_useLbsKey) ?? true; // Default to lbs
     notifyListeners();
   }
 
@@ -43,6 +47,13 @@ class ThemeService extends ChangeNotifier {
     _isCompactView = !_isCompactView;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_compactViewKey, _isCompactView);
+    notifyListeners();
+  }
+
+  Future<void> toggleCarbonUnit() async {
+    _useLbs = !_useLbs;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_useLbsKey, _useLbs);
     notifyListeners();
   }
 

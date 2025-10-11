@@ -1027,64 +1027,242 @@ class _HomePageState extends State<HomePage> {
       ),
       drawer: Drawer(
         backgroundColor: _themeService.isDarkMode 
-            ? ThemeService.darkCard 
-            : ThemeService.lightCard,
-        child: ListView(
-          padding: EdgeInsets.zero,
+            ? ThemeService.darkBackground 
+            : ThemeService.lightBackground,
+        child: Column(
           children: [
-            DrawerHeader(
+            // Custom header - simplified without background
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                child: Row(
+                  children: [
+                    // Logo/Icon
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF27AE60),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.eco_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // App name and tagline
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'EcoPantry',
+                            style: TextStyle(
+                              color: _themeService.isDarkMode 
+                                  ? ThemeService.darkTextPrimary 
+                                  : ThemeService.lightTextPrimary,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Reduce waste, save the planet',
+                            style: TextStyle(
+                              color: _themeService.isDarkMode 
+                                  ? ThemeService.darkTextSecondary 
+                                  : ThemeService.lightTextSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Menu items
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 1),
+                children: [
+                  // Carbon Impact Section Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                    child: Text(
+                      'IMPACT',
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextSecondary 
+                            : ThemeService.lightTextSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  
+                  // Carbon Savings Card
+                  _buildCarbonSavingsCard(),
+                  
+                  const SizedBox(height: 8),
+                  
+                  // App Section Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                    child: Text(
+                      'APP',
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextSecondary 
+                            : ThemeService.lightTextSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  
+                  // Finished Items
+                  _buildDrawerItem(
+                    icon: Icons.check_circle_rounded,
+                    title: 'Finished Items',
+                    subtitle: 'View your consumption history',
+                    iconColor: const Color(0xFF27AE60),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showFinishedItemsHistory();
+                    },
+                  ),
+                  
+                  // Settings
+                  _buildDrawerItem(
+                    icon: Icons.settings_rounded,
+                    title: 'Settings',
+                    subtitle: 'App preferences & configuration',
+                    iconColor: const Color(0xFF4A90E2),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, '/settings');
+                    },
+                  ),
+                  
+                  const Divider(height: 32, indent: 24, endIndent: 24),
+                  
+                  // Account Section
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                    child: Text(
+                      'ACCOUNT',
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextSecondary 
+                            : ThemeService.lightTextSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                  
+                  // User info
+                  _buildDrawerItem(
+                    icon: Icons.person_rounded,
+                    title: user.isAnonymous ? 'Guest User' : (user.displayName ?? 'User'),
+                    subtitle: user.email ?? 'Not signed in',
+                    iconColor: const Color(0xFF9B59B6),
+                    onTap: null,
+                  ),
+                  
+                  // Logout
+                  _buildDrawerItem(
+                    icon: Icons.logout_rounded,
+                    title: 'Logout',
+                    subtitle: 'Sign out of your account',
+                    iconColor: const Color(0xFFE74C3C),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Logout'),
+                          content: const Text('Are you sure you want to logout?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFE74C3C),
+                              ),
+                              child: const Text('Logout'),
+                            ),
+                          ],
+                        ),
+                      );
+                      
+                      if (confirmed == true) {
+                        await AuthService.instance.signOut();
+                        if (mounted) {
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (context) => const AuthGate()),
+                            (route) => false,
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            
+            // Footer
+            Container(
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: ThemeService.primaryColor,
-              ),
-              child: const Text(
-                'EcoPantry',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
+                border: Border(
+                  top: BorderSide(
+                    color: _themeService.isDarkMode 
+                        ? ThemeService.darkBorder 
+                        : ThemeService.lightBorder,
+                    width: 1,
+                  ),
                 ),
               ),
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.settings,
-                color: _themeService.isDarkMode 
-                    ? ThemeService.darkTextPrimary 
-                    : ThemeService.lightTextPrimary,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.eco_rounded,
+                    size: 16,
+                    color: Color(0xFF27AE60),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'Making a difference, one meal at a time',
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextSecondary 
+                            : ThemeService.lightTextSecondary,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              title: Text(
-                'Settings',
-                style: TextStyle(
-                  color: _themeService.isDarkMode 
-                      ? ThemeService.darkTextPrimary 
-                      : ThemeService.lightTextPrimary,
-                ),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/settings');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: Text(
-                'Logout',
-                style: TextStyle(
-                  color: _themeService.isDarkMode 
-                      ? ThemeService.darkTextPrimary 
-                      : ThemeService.lightTextPrimary,
-                ),
-              ),
-              onTap: () async {
-                Navigator.pop(context);
-                await AuthService.instance.signOut();
-                if (mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (context) => const AuthGate()),
-                    (route) => false,
-                  );
-                }
-              },
             ),
           ],
         ),
@@ -2191,6 +2369,462 @@ class _HomePageState extends State<HomePage> {
   }
 
 
+  double _getCarbonFootprint(String groceryType) {
+    // Carbon footprint in kg CO2 per kg of food (approximate values)
+    switch (groceryType) {
+      case 'meat':
+        return 27.0; // Beef has highest carbon footprint
+      case 'poultry':
+        return 6.9; // Chicken
+      case 'seafood':
+        return 13.6; // Fish
+      case 'dairy':
+        return 3.2; // Dairy products
+      case 'vegetable':
+        return 2.0; // Vegetables
+      case 'fruit':
+        return 1.0; // Fruits
+      case 'grain':
+        return 1.4; // Grains
+      case 'frozen':
+        return 3.0; // Frozen foods (higher due to energy)
+      default:
+        return 2.5; // Average
+    }
+  }
+
+  Widget _buildDrawerItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color iconColor,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: iconColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextPrimary 
+                            : ThemeService.lightTextPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextSecondary 
+                            : ThemeService.lightTextSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onTap != null)
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: _themeService.isDarkMode 
+                      ? ThemeService.darkTextSecondary 
+                      : ThemeService.lightTextSecondary,
+                  size: 20,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatCarbonValue(double carbonKg) {
+    // Convert kg to lbs if user preference is set to lbs (1 kg = 2.20462 lbs)
+    if (_themeService.useLbs) {
+      final carbonLbs = carbonKg * 2.20462;
+      return '${carbonLbs.toStringAsFixed(1)} lbs CO₂';
+    } else {
+      return '${carbonKg.toStringAsFixed(1)} kg CO₂';
+    }
+  }
+
+  Widget _buildCarbonSavingsCard() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _db
+          .collection('users')
+          .doc(user.uid)
+          .collection('finished_items')
+          .snapshots(),
+      builder: (context, snapshot) {
+        double carbonSaved = 0.0;
+        int itemsFinished = 0;
+        
+        if (snapshot.hasData) {
+          itemsFinished = snapshot.data!.docs.length;
+          for (var doc in snapshot.data!.docs) {
+            final data = doc.data();
+            final quantity = (data['quantity'] ?? 1) as num;
+            final groceryType = data['groceryType'] ?? 'other';
+            
+            double carbonPerKg = _getCarbonFootprint(groceryType);
+            carbonSaved += quantity * carbonPerKg * 0.5; // Assume average 0.5kg per item
+          }
+        }
+        
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF27AE60), Color(0xFF2ECC71)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF27AE60).withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.eco_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Carbon Impact Saved',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _formatCarbonValue(carbonSaved),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'emissions avoided',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '$itemsFinished',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'items finished',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showFinishedItemsHistory() async {
+    try {
+      final finishedItems = await _db
+          .collection('users')
+          .doc(user.uid)
+          .collection('finished_items')
+          .orderBy('finishedAt', descending: true)
+          .get();
+
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: _themeService.isDarkMode 
+            ? ThemeService.darkCard 
+            : ThemeService.lightCard,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) => Column(
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF27AE60).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.check_circle_rounded,
+                        color: Color(0xFF27AE60),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Finished Items',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: _themeService.isDarkMode 
+                              ? ThemeService.darkTextPrimary 
+                              : ThemeService.lightTextPrimary,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${finishedItems.docs.length}',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: _themeService.isDarkMode 
+                            ? ThemeService.darkTextSecondary 
+                            : ThemeService.lightTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Your consumption history & environmental impact',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _themeService.isDarkMode 
+                        ? ThemeService.darkTextSecondary 
+                        : ThemeService.lightTextSecondary,
+                  ),
+                ),
+              ),
+              const Divider(height: 24),
+              Expanded(
+                child: finishedItems.docs.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.check_circle_outline,
+                              size: 64,
+                              color: Colors.grey[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No finished items yet',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: _themeService.isDarkMode 
+                                    ? ThemeService.darkTextSecondary 
+                                    : ThemeService.lightTextSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Items you finish will appear here',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: _themeService.isDarkMode 
+                                    ? ThemeService.darkTextSecondary 
+                                    : ThemeService.lightTextSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: finishedItems.docs.length,
+                        itemBuilder: (context, index) {
+                          final doc = finishedItems.docs[index];
+                          final data = doc.data();
+                          final groceryType = GroceryType.fromString(data['groceryType'] ?? 'other');
+                          final finishedAt = data['finishedAt'] as Timestamp?;
+                          
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            color: _themeService.isDarkMode 
+                                ? ThemeService.darkBackground 
+                                : ThemeService.lightBackground,
+                            child: ListTile(
+                              leading: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: _getGroceryColor(groceryType).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  _getGroceryIcon(groceryType),
+                                  color: _getGroceryColor(groceryType),
+                                  size: 20,
+                                ),
+                              ),
+                              title: Text(
+                                data['name'] ?? 'Unknown',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: _themeService.isDarkMode 
+                                      ? ThemeService.darkTextPrimary 
+                                      : ThemeService.lightTextPrimary,
+                                ),
+                              ),
+                              subtitle: Text(
+                                'Qty: ${data['quantity'] ?? 1} • Finished ${_formatFinishedDate(finishedAt)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _themeService.isDarkMode 
+                                      ? ThemeService.darkTextSecondary 
+                                      : ThemeService.lightTextSecondary,
+                                ),
+                              ),
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF27AE60).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.check_rounded,
+                                  color: Color(0xFF27AE60),
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading finished items: ${e.toString()}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatFinishedDate(dynamic timestamp) {
+    if (timestamp == null) return 'recently';
+    
+    try {
+      final date = (timestamp as Timestamp).toDate();
+      final now = DateTime.now();
+      final difference = now.difference(date);
+      
+      if (difference.inDays > 0) {
+        return '${difference.inDays} day${difference.inDays == 1 ? '' : 's'} ago';
+      } else if (difference.inHours > 0) {
+        return '${difference.inHours} hour${difference.inHours == 1 ? '' : 's'} ago';
+      } else if (difference.inMinutes > 0) {
+        return '${difference.inMinutes} minute${difference.inMinutes == 1 ? '' : 's'} ago';
+      } else {
+        return 'just now';
+      }
+    } catch (e) {
+      return 'recently';
+    }
+  }
+
   Future<void> _recommendRecipes() async {
     if (!mounted) return;
 
@@ -2340,10 +2974,12 @@ class _EmptyStateState extends State<_EmptyState> {
   double _carbonSaved = 0.0;
   int _itemsFinished = 0;
   bool _isLoading = true;
+  late final ThemeService _themeService;
 
   @override
   void initState() {
     super.initState();
+    _themeService = ThemeService();
     _calculateCarbonSavings();
   }
 
@@ -2415,6 +3051,16 @@ class _EmptyStateState extends State<_EmptyState> {
     }
   }
 
+  String _formatCarbonValue(double carbonKg) {
+    // Convert kg to lbs if user preference is set to lbs (1 kg = 2.20462 lbs)
+    if (_themeService.useLbs) {
+      final carbonLbs = carbonKg * 2.20462;
+      return '${carbonLbs.toStringAsFixed(1)} lbs CO₂';
+    } else {
+      return '${carbonKg.toStringAsFixed(1)} kg CO₂';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -2469,7 +3115,7 @@ class _EmptyStateState extends State<_EmptyState> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '${_carbonSaved.toStringAsFixed(1)} kg CO₂',
+                        _formatCarbonValue(_carbonSaved),
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -2583,9 +3229,12 @@ class _CarbonEmissionsWidget extends StatefulWidget {
 }
 
 class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
+  late final ThemeService _themeService;
+
   @override
   void initState() {
     super.initState();
+    _themeService = ThemeService();
   }
 
   double _calculateCarbonSavings(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
@@ -2623,6 +3272,16 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
         return 3.0;
       default:
         return 2.5;
+    }
+  }
+
+  String _formatCarbonValue(double carbonKg) {
+    // Convert kg to lbs if user preference is set to lbs (1 kg = 2.20462 lbs)
+    if (_themeService.useLbs) {
+      final carbonLbs = carbonKg * 2.20462;
+      return '${carbonLbs.toStringAsFixed(1)} lbs CO₂';
+    } else {
+      return '${carbonKg.toStringAsFixed(1)} kg CO₂';
     }
   }
 
@@ -2673,7 +3332,7 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('You\'ve saved ${carbonSaved.toStringAsFixed(1)} kg CO₂ by using your food!'),
+                    content: Text('You\'ve saved ${_formatCarbonValue(carbonSaved)} by using your food!'),
                     backgroundColor: const Color(0xFF27AE60),
                   ),
                 );
@@ -2691,7 +3350,7 @@ class _CarbonEmissionsWidgetState extends State<_CarbonEmissionsWidget> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isLoading ? '...' : '${carbonSaved.toStringAsFixed(1)} kg CO₂',
+                      isLoading ? '...' : _formatCarbonValue(carbonSaved),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 10,
